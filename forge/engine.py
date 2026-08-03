@@ -482,16 +482,14 @@ class OrchestrationEngine:
         self.store.checkpoint(wf)
         self.store.save_workflow(wf)
 
-    def submit_approval(
+    def find_approval(
         self,
         wf: Workflow,
         *,
-        decision: str,
-        rationale: str = "",
         approval_id: str | None = None,
         task_id: str | None = None,
-    ) -> Workflow:
-        """Human submits a decision for a paused WAITING_APPROVAL gate, then resume."""
+    ) -> Any:
+        """Resolve the request a decision refers to: by id, by task, else the latest."""
         req = None
         if approval_id:
             req = next((a for a in wf.approvals if a.id == approval_id), None)
@@ -510,12 +508,52 @@ class OrchestrationEngine:
             )
         if req is None:
             raise ValueError("No pending approval request")
+        return req
+
+    def record_approval(
+        self,
+        wf: Workflow,
+        *,
+        decision: str,
+        rationale: str = "",
+        approval_id: str | None = None,
+        task_id: str | None = None,
+    ) -> Workflow:
+        """
+        Persist a human decision without executing any further work.
+
+        Split out of `submit_approval` for the distributed path: the API records
+        the decision durably, and a worker elsewhere continues the run. Recording
+        and executing in one call is only safe in-process — an API Lambda cannot
+        run a workflow, and handing the decision to a worker as the *only* record
+        of it loses the decision whenever that handoff does not arrive.
+        """
+        req = self.find_approval(wf, approval_id=approval_id, task_id=task_id)
         node = wf.tasks.get(req.task_id)
         if node is None:
             raise ValueError(f"Unknown approval task {req.task_id}")
         self._apply_approval_decision(wf, node, req, decision, rationale)
         self.store.checkpoint(wf)
         self.store.save_workflow(wf)
+        return wf
+
+    def submit_approval(
+        self,
+        wf: Workflow,
+        *,
+        decision: str,
+        rationale: str = "",
+        approval_id: str | None = None,
+        task_id: str | None = None,
+    ) -> Workflow:
+        """Human submits a decision for a paused WAITING_APPROVAL gate, then resume."""
+        self.record_approval(
+            wf,
+            decision=decision,
+            rationale=rationale,
+            approval_id=approval_id,
+            task_id=task_id,
+        )
         if wf.status == WorkflowStatus.RUNNING:
             return self.run(wf)
         return wf

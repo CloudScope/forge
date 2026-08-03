@@ -103,7 +103,11 @@ def run_segment(
         # a failure into the JSON verdict the state machine branches on.
         raise WorkflowNotFound(workflow_id)
 
-    if decision:
+    # A decision is only applied when a gate is actually open. The API records
+    # the decision before releasing the token, so by the time this segment runs
+    # the gate is usually already closed — re-applying would raise "No pending
+    # approval request" and fail an otherwise healthy segment.
+    if decision and _pending_approval(wf) is not None:
         # Resuming after a human decision released this segment.
         if runtime:
             runtime.resume_approval(

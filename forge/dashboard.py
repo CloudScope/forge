@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, Response
 from .approval_gates import is_known_decision, sanitize_options
 from .auth import StudioAuthMiddleware, auth_mode
 from .core.paths import ensure_runtime_dirs, paths as forge_paths
-from .execution import get_launcher
+from .execution import get_launcher, using_step_functions
 from .storage import (
     artifact_prefix,
     document_store,
@@ -597,20 +597,49 @@ async def approve_workflow(
                 task_id=payload.get("task_id"),
             )
 
-    # On AWS the parked Step Functions execution owns the resume: handing the
-    # decision to its task token releases the next Fargate segment. The in-process
-    # path is only used when no execution is waiting (local, or a lost token).
-    released = get_launcher(_record_run_state).resume(
-        workflow_id,
-        {
-            "decision": decision,
-            "rationale": rationale,
-            "approval_id": payload.get("approval_id"),
-            "task_id": payload.get("task_id"),
-        },
-    )
-    if not released.get("handled"):
-        _start_workflow_thread(workflow_id, _resume)
+    launcher = get_launcher(_record_run_state)
+
+    if using_step_functions():
+        # Record the decision here, before any handoff. Execution belongs to a
+        # Fargate segment, but the *decision* must not: this Lambda cannot run a
+        # workflow, and a background thread does not survive the response being
+        # returned. Persisting first also makes the gate idempotent — a worker
+        # that starts without `--decision` rehydrates a state where the gate is
+        # already approved and simply carries on instead of re-pausing on it.
+        engine.record_approval(
+            wf,
+            decision=decision,
+            rationale=rationale,
+            approval_id=payload.get("approval_id"),
+            task_id=payload.get("task_id"),
+        )
+        released = launcher.resume(
+            workflow_id,
+            {
+                "decision": decision,
+                "rationale": rationale,
+                "approval_id": payload.get("approval_id"),
+                "task_id": payload.get("task_id"),
+            },
+        )
+        if not released.get("handled"):
+            # No parked execution to release (token lost, or it timed out), so
+            # nothing would continue the run. Start a fresh execution; the worker
+            # resumes from the decision just persisted.
+            released = launcher.start(workflow_id)
+    else:
+        # In-process: the same thread records the decision and drives the run.
+        released = launcher.resume(
+            workflow_id,
+            {
+                "decision": decision,
+                "rationale": rationale,
+                "approval_id": payload.get("approval_id"),
+                "task_id": payload.get("task_id"),
+            },
+        )
+        if not released.get("handled"):
+            _start_workflow_thread(workflow_id, _resume)
 
     return {
         "workflow_id": workflow_id,
