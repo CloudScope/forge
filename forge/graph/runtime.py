@@ -15,10 +15,11 @@ from .tracing import configure_langsmith, run_config
 
 def langgraph_available() -> bool:
     try:
-        import langgraph  # noqa: F401
-        from langgraph.types import Command, interrupt  # noqa: F401
+        import langgraph
+        from langgraph.types import Command, interrupt
 
-        return True
+        # Reference the probes so the import check is not optimised away by linters.
+        return bool(langgraph and Command and interrupt)
     except Exception:
         return False
 

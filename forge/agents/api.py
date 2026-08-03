@@ -227,7 +227,6 @@ def _normalize_openapi(spec: dict[str, Any], product: str) -> dict[str, Any]:
 
     servers = spec.get("servers")
     if not isinstance(servers, list) or not servers:
-        slug = "".join(ch if ch.isalnum() else "-" for ch in product.lower()).strip("-") or "snipr"
         servers = [{"url": "https://api.example.com", "description": "Production"}]
 
     out: dict[str, Any] = {

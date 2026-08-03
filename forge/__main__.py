@@ -10,7 +10,7 @@ def _load_dotenv() -> None:
     try:
         from dotenv import load_dotenv
 
-        from .core.paths import ensure_runtime_dirs, paths
+        from .core.paths import ensure_runtime_dirs
 
         p = ensure_runtime_dirs()
         load_dotenv(p.env_file)
@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     dash_p.add_argument("--port", type=int, default=8787)
     dash_p.add_argument("--reload", action="store_true", help="Auto-reload (dev)")
 
-    agents_p = sub.add_parser("agents", help="List the agent roster")
+    sub.add_parser("agents", help="List the agent roster")
 
     args = parser.parse_args(argv)
 

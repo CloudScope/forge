@@ -2076,7 +2076,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
     )
     put(
         "infra/docker/docker-compose.yml",
-        f"""services:
+        """services:
   api:
     build:
       context: ../..

@@ -393,9 +393,6 @@ def _screen_tsx(screen: dict[str, Any], *, is_home: bool) -> str:
     )
     mvp_block = ""
     if is_home and mvp:
-        chips = "".join(
-            f'<span className="chip" key={json.dumps(m)}>{_esc(m)}</span>' for m in mvp[:6]
-        )
         # Use JSX properly in the generated file
         mvp_chips_js = ", ".join(json.dumps(m) for m in mvp[:6])
         mvp_block = f"""
