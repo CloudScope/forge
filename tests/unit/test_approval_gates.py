@@ -82,6 +82,29 @@ class TestApprovalEffects:
         assert "analytics.pipeline" in wf.tasks, "clarification did not re-plan the DAG"
         assert "analytics.api" in wf.tasks
 
+    def test_an_invented_option_id_would_fail_the_run(self, engine, make_workflow):
+        """
+        Why sanitize_options exists: the engine reads any unknown id as a
+        rejection, so a gate button the model named "proceed" is destructive.
+        """
+        wf, node, req = self._gate(engine, make_workflow, "approval.clarify")
+
+        engine._apply_approval_decision(wf, node, req, "proceed", "looks fine")
+
+        assert wf.status == WorkflowStatus.FAILED, "unknown ids must stay fail-closed"
+
+    def test_llm_authored_options_are_constrained_to_known_ids(self):
+        from forge.approval_gates import sanitize_options
+
+        # Model invents its own vocabulary — drop it and use the gate defaults.
+        assert sanitize_options([{"id": "proceed", "label": "Proceed"}]) is None
+        # A menu with no way forward is not a usable menu.
+        assert sanitize_options([{"id": "reject", "label": "Stop"}]) is None
+        # Known ids survive intact.
+        assert sanitize_options(
+            [{"id": "A", "label": "Essentials"}, {"id": "reject", "label": "Stop"}]
+        ) == [{"id": "A", "label": "Essentials"}, {"id": "reject", "label": "Stop"}]
+
     def test_rejection_fails_the_workflow(self, engine, make_workflow):
         wf, node, req = self._gate(engine, make_workflow, "approval.arch")
 

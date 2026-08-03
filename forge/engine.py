@@ -349,18 +349,9 @@ class OrchestrationEngine:
         assert isinstance(req, ApprovalRequest)
         req.decision = decision
         req.rationale = rationale
-        approve_ids = {
-            "approve",
-            "go",
-            "A",
-            "B",
-            "C",
-            "open_workspace",
-            "agent_design",
-            "figma_uploaded",
-            "skip_figma",
-        }
-        if decision in approve_ids or decision.lower() in approve_ids:
+        from .approval_gates import is_approve_decision
+
+        if is_approve_decision(decision):
             req.status = "APPROVED"
             if node.id.startswith("approval.clarify"):
                 wf.facts["needs_clarification"] = False

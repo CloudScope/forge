@@ -573,6 +573,12 @@ async def approve_workflow(
     rationale = str(payload.get("rationale") or "Approved in Forge Studio")
     if not decision:
         raise HTTPException(400, "decision is required")
+    # The engine fails the workflow on anything it cannot approve, so an id from
+    # a stale or malformed gate menu must be refused here rather than resumed.
+    from .approval_gates import is_known_decision
+
+    if not is_known_decision(decision):
+        raise HTTPException(400, f"Unknown decision '{decision}' — cannot resume this gate")
 
     def _resume() -> None:
         if runtime is not None:

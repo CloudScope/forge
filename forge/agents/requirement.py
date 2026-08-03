@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..approval_gates import sanitize_options
 from ..models import TaskNode, Workflow
 from ._common import art, publish
 from .doc_context import doc_summary, has_feature, requirement_text
@@ -51,6 +52,14 @@ def requirement_analyze(wf: Workflow, task: TaskNode) -> dict[str, Any]:
             open_q = list(llm.get("open_questions") or reqspec.get("open_questions") or [])
             amb = llm.get("ambiguity_report") if isinstance(llm.get("ambiguity_report"), dict) else None
             if amb:
+                # The model authors these options freely; ids it invents would
+                # render buttons the engine reads as "reject" and fail the run.
+                amb = dict(amb)
+                safe = sanitize_options(amb.get("options"))
+                if safe is None:
+                    amb.pop("options", None)  # fall back to the gate's defaults
+                else:
+                    amb["options"] = safe
                 publish(wf, task, "ambiguity_report", amb, bill=False)
             elif open_q:
                 publish(
