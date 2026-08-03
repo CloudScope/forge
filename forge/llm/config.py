@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from ..secrets import scrub
+
 
 def _env(name: str, default: str = "") -> str:
     return (os.environ.get(name) or default).strip()
@@ -56,7 +58,10 @@ class LLMConfig:
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
-        key = _env("FORGE_LLM_API_KEY") or _env("OPENAI_API_KEY")
+        # The ECS worker gets this injected straight from Parameter Store, so the
+        # placeholder never passes through forge.secrets.hydrate — scrub it here
+        # too, or `enabled` goes true on a key that cannot authenticate.
+        key = scrub(_env("FORGE_LLM_API_KEY")) or scrub(_env("OPENAI_API_KEY"))
         base = _env("FORGE_LLM_BASE_URL") or _env("OPENAI_BASE_URL") or None
         enabled_raw = _env("FORGE_LLM_ENABLED")
         enabled_override: bool | None

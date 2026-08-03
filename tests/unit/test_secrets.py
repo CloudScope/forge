@@ -121,6 +121,40 @@ class TestFailuresDoNotBlockStartup:
 
         assert secrets.hydrate() == []
 
+    def test_the_terraform_placeholder_is_never_a_live_token(
+        self, monkeypatch, fake_ssm
+    ):
+        """
+        SSM cannot store an empty value, so Terraform writes UNSET_SENTINEL when
+        no token was supplied. Reading it back as a credential would hand a
+        publicly reachable Studio a well-known bearer token.
+        """
+        from forge.auth import configured_token
+
+        monkeypatch.setenv("FORGE_API_TOKEN_PARAM", "/p/token")
+        monkeypatch.delenv("FORGE_API_TOKEN", raising=False)
+        fake_ssm({"/p/token": secrets.UNSET_SENTINEL})
+
+        assert secrets.hydrate() == []
+        assert configured_token() is None  # loopback-only, not open
+
+    def test_the_placeholder_is_refused_even_when_injected_directly(
+        self, monkeypatch
+    ):
+        """The ECS task gets Parameter Store values without going through hydrate()."""
+        from forge.auth import configured_token
+        from forge.llm.config import LLMConfig
+
+        monkeypatch.setenv("FORGE_API_TOKEN", secrets.UNSET_SENTINEL)
+        monkeypatch.setenv("FORGE_LLM_API_KEY", secrets.UNSET_SENTINEL)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("FORGE_LLM_ENABLED", raising=False)
+
+        assert configured_token() is None
+        # Not merely empty: `enabled` must stay false so agents take the
+        # heuristic path instead of 401-ing on every call.
+        assert LLMConfig.from_env().enabled is False
+
 
 def test_hydration_runs_once_per_process(monkeypatch, fake_ssm):
     monkeypatch.setenv("FORGE_API_TOKEN_PARAM", "/p/token")

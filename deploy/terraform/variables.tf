@@ -103,14 +103,20 @@ variable "llm_api_key" {
   type        = string
   default     = ""
   sensitive   = true
-  description = "Initial value only; rotate in Parameter Store, not in state."
+  description = <<-EOT
+    Initial value only; rotate in Parameter Store, not in state. Empty stores a
+    placeholder the app reads as unset, leaving agents on their heuristic path.
+  EOT
 }
 
 variable "api_token" {
   type        = string
   default     = ""
   sensitive   = true
-  description = "Studio API bearer token. Empty means the API is loopback-only."
+  description = <<-EOT
+    Studio API bearer token. Empty means the API is loopback-only: a placeholder
+    is stored so the parameter exists, and the app refuses it as a credential.
+  EOT
 }
 
 # ── Retention ────────────────────────────────────────────────────────────────

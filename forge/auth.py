@@ -24,6 +24,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from .secrets import scrub
+
 # Health is intentionally open: container liveness probes run before credentials
 # are injected, and it exposes no workflow data.
 PUBLIC_PATHS: frozenset[str] = frozenset({"/api/health"})
@@ -36,8 +38,9 @@ LOOPBACK_HOSTS: frozenset[str] = frozenset({"127.0.0.1", "::1", "localhost", "te
 
 def configured_token() -> str | None:
     """The shared token, or None when the Studio is in loopback-only mode."""
-    token = (os.environ.get("FORGE_API_TOKEN") or "").strip()
-    return token or None
+    # scrub(): the placeholder Terraform writes for an unsupplied token must leave
+    # the Studio loopback-only, never become a valid credential.
+    return scrub(os.environ.get("FORGE_API_TOKEN")) or None
 
 
 def _presented_token(request: Request) -> str | None:

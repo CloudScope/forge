@@ -26,6 +26,20 @@ PARAMETER_REFS = {
     "FORGE_LLM_API_KEY": "FORGE_LLM_KEY_PARAM",
 }
 
+# SSM rejects empty parameter values (PutParameter requires length >= 1), but the
+# parameters must exist unconditionally because the Lambda and the ECS task both
+# reference them. Terraform therefore writes this sentinel when no secret was
+# supplied, and every reader below treats it as "not set". It must never be
+# accepted as a real credential: `FORGE_API_TOKEN` is a live bearer token.
+UNSET_SENTINEL = "__unset__"
+
+
+def scrub(value: str | None) -> str:
+    """Normalise a secret, mapping the Terraform placeholder back to empty."""
+    cleaned = (value or "").strip()
+    return "" if cleaned == UNSET_SENTINEL else cleaned
+
+
 _hydrated = False
 
 
@@ -66,7 +80,7 @@ def hydrate(force: bool = False) -> list[str]:
         except Exception as exc:  # noqa: BLE001 — one bad parameter must not block boot
             logger.warning("Could not read parameter %s: %s", name, exc)
             continue
-        value = (response.get("Parameter") or {}).get("Value") or ""
+        value = scrub((response.get("Parameter") or {}).get("Value"))
         if value:
             os.environ[target] = value
             resolved.append(target)

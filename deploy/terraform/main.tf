@@ -192,18 +192,29 @@ resource "aws_ecr_lifecycle_policy" "keep_recent" {
 # ─────────────────────────────────────────────────────────────────────────────
 # Secrets — Parameter Store, not Secrets Manager: standard parameters are free
 # and this deployment does not need managed rotation.
+#
+# Both parameters are created unconditionally: the Lambda and the ECS task
+# reference them by name and ARN, so they must exist even before a secret is
+# supplied. PutParameter rejects an empty value, so an unset variable is stored
+# as a sentinel that the application reads back as "not set" — see the matching
+# UNSET_SENTINEL in forge/secrets.py. Do not replace it with a plausible-looking
+# dummy: a non-sentinel api-token would be accepted as a live bearer token.
 # ─────────────────────────────────────────────────────────────────────────────
+
+locals {
+  secret_unset = "__unset__"
+}
 
 resource "aws_ssm_parameter" "llm_api_key" {
   name  = "/${local.name}/llm-api-key"
   type  = "SecureString"
-  value = var.llm_api_key
+  value = var.llm_api_key != "" ? var.llm_api_key : local.secret_unset
   lifecycle { ignore_changes = [value] }
 }
 
 resource "aws_ssm_parameter" "api_token" {
   name  = "/${local.name}/api-token"
   type  = "SecureString"
-  value = var.api_token
+  value = var.api_token != "" ? var.api_token : local.secret_unset
   lifecycle { ignore_changes = [value] }
 }
