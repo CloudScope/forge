@@ -1882,7 +1882,11 @@ const RESULT_SECTIONS = [
 const state = {
   workflows: [], selected: null, tab: "results", detail: null, results: null,
   resultKey: "dag_design_html", trace: [], overview: null, uploading: false,
-  fePages: null, codingToastFor: null
+  fePages: null, codingToastFor: null,
+  // Approval id the modal is currently built for, and the one whose decision is
+  // already in flight. The poll runs every few seconds and would otherwise
+  // rebuild and re-open the modal on top of the user each tick.
+  approvalRenderedFor: null, approvalSubmittedFor: null
 };
 
 function chipClass(status) {
@@ -2690,6 +2694,8 @@ function closeApprovalModal() {
 
 async function submitApprovalDecision(id, appr, decision, btn) {
   if (btn) btn.disabled = true;
+  // Claim this gate before the request so an in-flight poll cannot re-open it.
+  state.approvalSubmittedFor = String(appr.id || appr.task_id || "");
   const openWorkspace = decision === "open_workspace";
   document.getElementById("upload-status").textContent = `Submitting ${decision}…`;
   const res = await fetch(`/api/workflows/${id}/approve`, {
@@ -2706,9 +2712,13 @@ async function submitApprovalDecision(id, appr, decision, btn) {
   if (!res.ok) {
     document.getElementById("upload-status").textContent = out.detail || "Approval failed";
     if (btn) btn.disabled = false;
+    // Release the claim so the gate can be answered again.
+    state.approvalSubmittedFor = null;
+    state.approvalRenderedFor = null;
     return;
   }
   closeApprovalModal();
+  state.approvalRenderedFor = null;
   const panel = document.getElementById("approval-panel");
   if (panel) { panel.style.display = "none"; panel.innerHTML = ""; }
   const task = appr.task_id || "";
@@ -2747,9 +2757,18 @@ async function refreshApprovalPanel(id) {
     panel.style.display = "none";
     panel.innerHTML = "";
     closeApprovalModal();
+    state.approvalRenderedFor = null;
+    state.approvalSubmittedFor = null;
     return;
   }
   const appr = data.pending[0];
+  const apprKey = String(appr.id || appr.task_id || "");
+  // Resume is asynchronous: the gate stays REQUESTED for a moment after the
+  // POST returns. Without this the next tick re-opens the modal the user just
+  // answered, and re-enables the buttons they already clicked.
+  if (state.approvalSubmittedFor === apprKey) return;
+  // Already showing this exact gate — leave the DOM alone.
+  if (state.approvalRenderedFor === apprKey && !modal.hidden) return;
   const taskId = String(appr.task_id || "");
   const isClarify = taskId.includes("approval.clarify");
   const isCoding = taskId.includes("approval.coding");
@@ -2817,6 +2836,7 @@ async function refreshApprovalPanel(id) {
   document.getElementById("approval-modal-actions").innerHTML = optsHtml;
   modal.hidden = false;
   document.body.style.overflow = "hidden";
+  state.approvalRenderedFor = apprKey;
 
   const bind = (root) => {
     root.querySelectorAll("button[data-decision]").forEach(btn => {
@@ -2831,6 +2851,9 @@ async function refreshApprovalPanel(id) {
         run().catch((err) => {
           document.getElementById("upload-status").textContent = `Error: ${err.message || err}`;
           btn.disabled = false;
+          // A throw must not leave the gate permanently suppressed.
+          state.approvalSubmittedFor = null;
+          state.approvalRenderedFor = null;
         });
       });
     });
