@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, Response
 
+from .approval_gates import is_known_decision, sanitize_options
 from .auth import StudioAuthMiddleware, auth_mode
 from .core.paths import ensure_runtime_dirs, paths as forge_paths
 from .execution import get_launcher
@@ -404,7 +405,7 @@ def pending_approval(workflow_id: str) -> dict[str, Any]:
                 "task_id": a.task_id,
                 "title": a.title,
                 "summary": a.summary,
-                "options": a.options
+                "options": sanitize_options(a.options)
                 or [
                     {"id": "approve", "label": "Approve"},
                     {"id": "reject", "label": "Reject"},
@@ -422,7 +423,7 @@ def pending_approval(workflow_id: str) -> dict[str, Any]:
             if a.get("status") == "REQUESTED"
         ]
         for a in raw:
-            opts = a.get("options") or [
+            opts = sanitize_options(a.get("options")) or [
                 {"id": "approve", "label": "Approve"},
                 {"id": "reject", "label": "Reject"},
             ]
@@ -575,8 +576,6 @@ async def approve_workflow(
         raise HTTPException(400, "decision is required")
     # The engine fails the workflow on anything it cannot approve, so an id from
     # a stale or malformed gate menu must be refused here rather than resumed.
-    from .approval_gates import is_known_decision
-
     if not is_known_decision(decision):
         raise HTTPException(400, f"Unknown decision '{decision}' — cannot resume this gate")
 

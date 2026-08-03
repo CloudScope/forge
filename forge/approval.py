@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .approval_gates import sanitize_options
 from .models import ApprovalRequest, RiskTier, TaskNode, Workflow, new_id
 
 
@@ -64,7 +65,9 @@ def build_request(wf: Workflow, task: TaskNode) -> ApprovalRequest:
             f"Review requirement ambiguities before planning continues. "
             f"Score={score if score is not None else 'n/a'}. Focus: {q_preview}"
         )
-        options = content.get("options") or [
+        # Sanitised on read, not just on publish: a report stored before the
+        # constraint existed still carries ids the engine cannot honour.
+        options = sanitize_options(content.get("options")) or [
             {"id": "approve", "label": "Requirements are clear — proceed"},
             {"id": "A", "label": "Essentials scope"},
             {"id": "B", "label": "Product analytics scope"},
