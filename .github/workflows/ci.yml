@@ -1,0 +1,91 @@
+name: ci
+
+# Runs on everything. Deployment is gated on this passing — see deploy.yml.
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TERRAFORM_VERSION: 1.15.8
+
+jobs:
+  test:
+    name: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt pyflakes
+
+      - name: Lint
+        run: python -m pyflakes forge main.py tests
+
+      # The suite runs with no LLM key and no AWS credentials: agents take their
+      # heuristic path and storage stays on the local backend.
+      - name: Test
+        run: python -m pytest tests -q
+        env:
+          FORGE_LLM_ENABLED: "false"
+
+  terraform:
+    name: terraform validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          # Must satisfy the required_version floor for S3-native state locking.
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Format
+        run: terraform fmt -check -recursive
+        working-directory: deploy/terraform
+
+      # -backend=false: validation needs no credentials and must not take a lock.
+      - name: Validate
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+        working-directory: deploy/terraform
+
+  images:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      # Build only — proves both Dockerfiles are sound before a deploy needs them.
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile.api
+          push: false
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile.worker
+          push: false
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker

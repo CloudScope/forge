@@ -1,0 +1,32 @@
+# Studio control plane on AWS Lambda.
+#
+# The Lambda Web Adapter runs the unmodified uvicorn app behind the Lambda
+# runtime API, so there is no Mangum shim and the same image can be run locally
+# with `docker run -p 8787:8787`.
+FROM public.ecr.aws/lambda/python:3.12
+
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.8.4 /lambda-adapter /opt/extensions/lambda-adapter
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8787 \
+    AWS_LWA_PORT=8787 \
+    AWS_LWA_READINESS_CHECK_PATH=/api/health \
+    FORGE_STORAGE=aws \
+    FORGE_EXECUTION=stepfunctions \
+    FORGE_CHECKPOINTER=memory \
+    FORGE_VAR_ROOT=/tmp/forge
+
+WORKDIR /var/task
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt boto3
+
+COPY main.py .
+COPY forge ./forge
+COPY config ./config
+
+# The API never executes a workflow: state lives in DynamoDB/S3 and execution
+# happens in Fargate, so /tmp is only scratch for uploads being parsed.
+ENTRYPOINT []
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8787"]

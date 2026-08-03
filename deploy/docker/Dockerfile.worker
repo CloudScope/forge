@@ -1,0 +1,27 @@
+# Workflow execution segment, run as an ECS Fargate task by Step Functions.
+#
+# One task = the work between two human decisions. It rehydrates from DynamoDB/S3,
+# ticks the engine until a gate or a terminal state, syncs generated code back to
+# S3, prints a JSON verdict, and exits — nothing is billed while a human thinks.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    FORGE_STORAGE=aws \
+    FORGE_EXECUTION=stepfunctions \
+    FORGE_CHECKPOINTER=memory \
+    FORGE_VAR_ROOT=/tmp/forge
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt boto3
+
+COPY forge ./forge
+COPY config ./config
+
+# Codegen writes a real source tree; Fargate ephemeral storage is the scratch
+# space and forge.storage mirrors the result to S3 before the task exits.
+RUN mkdir -p /tmp/forge
+
+ENTRYPOINT ["python", "-m", "forge.worker"]

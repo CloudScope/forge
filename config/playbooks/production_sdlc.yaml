@@ -1,0 +1,222 @@
+id: forge.production_sdlc
+version: 1
+description: >
+  Production-grade Agentic SDLC matching the End-to-End HLD —
+  Intake → Analysis → Plan → Plan Gate → Parallel Design/Build
+  (Architecture+Human Gate, DB, API, Backend, Frontend, DevOps, Security)
+  → Sync Barrier → Testing → Validation → Security Review → Docs →
+  Release → Human Go/No-Go → Deployment Recommendation → Engineering Summary.
+nodes:
+  # 1. Requirement Intake
+  - id: intake.capture
+    agent: intake
+    description: "1. Requirement Intake — capture PRD, stakeholders, constraints"
+
+  # 2. Requirement Analysis
+  - id: req.analyze
+    agent: requirement
+    deps: [intake.capture]
+    description: "2. Requirement Analysis — FR/NFR, assumptions, risks, ambiguities"
+
+  # Requirements confirmation / ambiguity clarification (always asks human)
+  - id: approval.clarify
+    type: APPROVAL
+    agent: human_approval
+    deps: [req.analyze]
+    risk_tier: HIGH
+    description: "2b. Requirements clarification gate (human modal)"
+
+  - id: req.renormalize
+    agent: requirement
+    deps: [approval.clarify]
+    condition: "fact:clarification_accepted==true"
+    description: "2c. Renormalize ReqSpec after clarification"
+
+  # Product analyst (joins clarify path; skipped deps are satisfied)
+  - id: product.brief
+    agent: product
+    deps: [req.analyze, req.renormalize]
+    description: "2d. Product Analyst — MVP cut, backlog, success metrics"
+
+  # 3. Planning & Decomposition
+  - id: plan.decompose
+    agent: planner
+    deps: [product.brief]
+    description: "3. Planning — epics/stories/tasks, effort, risk"
+
+  # 4. Build Dependency Graph
+  - id: dag.build
+    agent: dag
+    deps: [plan.decompose]
+    description: "4. Build Dependency Graph — waves, gates, sync points"
+
+  # 5. Plan Approval Gate
+  - id: approval.plan
+    type: APPROVAL
+    agent: human_approval
+    deps: [dag.build]
+    risk_tier: CRITICAL
+    description: "5. Plan Approval Gate — human reviews plan, risks, estimates"
+
+  # 6. Entry Gate
+  - id: barrier.entry
+    type: BARRIER
+    agent: barrier
+    deps: [approval.plan]
+    description: "6. Entry Gate — begin parallel agent workflow"
+
+  # 6.1 Architecture + Human Architecture Review
+  - id: arch.design
+    agent: architecture
+    deps: [barrier.entry]
+    risk_tier: HIGH
+    description: "6.1 Architecture — context, HLD/LLD, ADRs, tech stack"
+
+  - id: approval.arch
+    type: APPROVAL
+    agent: human_approval
+    deps: [arch.design]
+    risk_tier: CRITICAL
+    description: "6.1 Human Architecture Review Gate"
+
+  # 6.2 Database design (HTML) after architecture freeze
+  - id: db.design
+    agent: database
+    deps: [approval.arch]
+    risk_tier: HIGH
+    description: "6.2 Database — ER/schema HTML design, indexes, migrations"
+
+  # Human gate: approve DB (+ LLD) before API contracts are generated
+  - id: approval.db
+    type: APPROVAL
+    agent: human_approval
+    deps: [db.design]
+    risk_tier: CRITICAL
+    description: "6.2b Human Approval — freeze DB/LLD design; then API agent starts"
+
+  # 6.3 API only after human approves database design
+  - id: api.design
+    agent: api
+    deps: [approval.db]
+    description: "6.3 API Design — REST, OpenAPI, errors, versioning"
+
+  # Human gate: approve OpenAPI before workspace codegen (backend + UI)
+  - id: approval.api
+    type: APPROVAL
+    agent: human_approval
+    deps: [api.design]
+    risk_tier: CRITICAL
+    description: "6.3b Human Approval — freeze OpenAPI; then create workspace and code"
+
+  - id: barrier.design
+    type: BARRIER
+    agent: barrier
+    deps: [approval.api]
+    description: "Design sync — schema + API contracts frozen; coding unlocked"
+
+  # Optional Figma before UI — human can upload a Figma export/URL or let the agent design from LLD
+  - id: approval.figma
+    type: APPROVAL
+    agent: human_approval
+    deps: [barrier.design]
+    risk_tier: HIGH
+    description: "6.4b Figma gate — upload Figma export/URL or continue with LLD agent UI"
+
+  # 6.4–6.7 Build peers (after API approval → real workspace codegen)
+  - id: backend.implement
+    agent: backend
+    deps: [barrier.design]
+    description: "6.4 Backend — FastAPI workspace from HLD/LLD/DB/OpenAPI"
+
+  - id: frontend.implement
+    agent: frontend
+    deps: [approval.figma]
+    description: "6.5 Frontend — UI from LLD (or Figma if uploaded)"
+
+  - id: devops.infra
+    agent: devops
+    deps: [barrier.design]
+    description: "6.6 DevOps — Docker, K8s, CI/CD, IaC, secrets"
+
+  - id: security.threat
+    agent: security
+    deps: [barrier.design]
+    risk_tier: HIGH
+    description: "6.7 Security — threat model, AuthN/Z, OWASP, compliance"
+
+  # Synchronization / Exit Gate
+  - id: barrier.sync
+    type: BARRIER
+    agent: barrier
+    deps: [backend.implement, frontend.implement, devops.infra, security.threat]
+    description: "Synchronization Barrier / Exit Gate"
+
+  # Coding complete — human confirms workspace before tests/validation
+  - id: approval.coding
+    type: APPROVAL
+    agent: human_approval
+    deps: [barrier.sync]
+    risk_tier: HIGH
+    description: "6.8 Coding complete — approve generated workspace (human modal)"
+
+  # 7. Testing
+  - id: test.generate
+    agent: testing
+    deps: [approval.coding]
+    description: "7. Testing — unit/integration/API/load/chaos/regression"
+
+  # 8. Validation
+  - id: validation.review
+    agent: validation
+    deps: [test.generate]
+    description: "8. Validation — quality, architecture, performance, best practices"
+
+  # 9. Security Review
+  - id: security.scan
+    agent: security_scan
+    deps: [validation.review]
+    risk_tier: HIGH
+    description: "9. Security Review — vuln/dependency/SAST-DAST style review"
+
+  - id: validate.pre_release
+    agent: barrier
+    deps: [security.scan]
+    description: "9b. Automated validation gates (fail → retry/replan)"
+
+  # 10. Documentation
+  - id: docs.write
+    agent: documentation
+    deps: [validate.pre_release]
+    description: "10. Documentation — README, architecture, API, ADRs, guides"
+
+  # 11. Release Readiness
+  - id: release.ready
+    agent: release
+    deps: [docs.write]
+    description: "11. Release Readiness — coverage, benchmarks, go/no-go"
+
+  # 12. Human Approval Gate
+  - id: approval.release
+    type: APPROVAL
+    agent: human_approval
+    deps: [release.ready]
+    risk_tier: CRITICAL
+    description: "12. Human Approval Gate — production release"
+
+  # 13. Deployment Recommendation
+  - id: deploy.recommend
+    agent: deployment
+    deps: [approval.release]
+    description: "13. Deployment Recommendation — rollout, monitoring, rollback"
+
+  # 15. Observability & Audit
+  - id: o11y.finalize
+    agent: observability
+    deps: [deploy.recommend]
+    description: "15. Observability & Audit — SLIs/SLOs, dashboards, lineage"
+
+  # 16. Final Deliverables
+  - id: summary.engineering
+    agent: summary
+    deps: [o11y.finalize]
+    description: "16. Final Deliverables — engineering summary + artifact pack"

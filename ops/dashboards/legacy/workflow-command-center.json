@@ -1,0 +1,75 @@
+{
+  "title": "Forge Workflow Command Center",
+  "uid": "forge-workflow-cc",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Active Workflows",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "count(forge_workflow_completed_total{result=\"running\"}) OR vector(0)",
+          "legendFormat": "active"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "E2E Workflow Duration p95",
+      "gridPos": {"h": 8, "w": 12, "x": 6, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, playbook) (rate(forge_workflow_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{playbook}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Cost Burn (USD/hour)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(forge_cost_usd_total[1h])) * 3600",
+          "legendFormat": "usd_per_hour"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Approval Queue",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "expr": "forge_approvals_total{decision=\"requested\"}",
+          "legendFormat": "{{risk_tier}}"
+        }
+      ]
+    },
+    {
+      "type": "gauge",
+      "title": "Failure Rate",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 4},
+      "targets": [
+        {
+          "expr": "sum(rate(forge_workflow_completed_total{result=\"failed\"}[1h])) / clamp_min(sum(rate(forge_workflow_completed_total[1h])), 1)",
+          "legendFormat": "failure_rate"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Tokens by Agent",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "sum by (agent) (rate(forge_tokens_total[5m]))",
+          "legendFormat": "{{agent}}"
+        }
+      ]
+    }
+  ]
+}

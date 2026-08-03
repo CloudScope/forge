@@ -1,0 +1,166 @@
+id: url_shortener.greenfield
+version: 3
+description: >
+  End-to-end Snipr greenfield with full multi-agent SDLC roster —
+  product → requirements → BA → plan → arch → DB/API/perf →
+  BE/FE/DevOps → test/docs/o11y → security/compliance/review →
+  validation → release
+nodes:
+  # ── Intake ──────────────────────────────────────────────
+  - id: product.brief
+    agent: product
+    description: Product Analyst — MVP cut, backlog, success metrics
+
+  - id: req.analyze
+    agent: requirement
+    deps: [product.brief]
+    description: Requirement Analysis — FR/NFR, acceptance, assumptions
+
+  - id: ba.domain
+    agent: business_analyst
+    deps: [req.analyze]
+    description: Business Analyst — domain model, use cases, edge cases
+
+  # ── Planning ────────────────────────────────────────────
+  - id: plan.decompose
+    agent: planner
+    deps: [ba.domain]
+    description: Planning — epics/stories/tasks + dependency graph
+
+  - id: risk.assess
+    agent: risk
+    deps: [plan.decompose]
+    description: Risk — living risk register + stage scores
+
+  # ── Architecture (gated) ────────────────────────────────
+  - id: arch.design
+    agent: architecture
+    deps: [plan.decompose, risk.assess]
+    risk_tier: HIGH
+    description: Architecture — HLD/LLD, ADRs, capacity, diagrams
+
+  - id: approval.arch
+    type: APPROVAL
+    agent: human_approval
+    deps: [arch.design]
+    risk_tier: CRITICAL
+    description: Human architecture freeze
+
+  # ── Design parallel fan-out ─────────────────────────────
+  - id: db.design
+    agent: database
+    deps: [approval.arch]
+    risk_tier: HIGH
+    description: Database — schema, indexes, sharding, migrations
+
+  - id: api.design
+    agent: api
+    deps: [approval.arch]
+    description: API Design — OpenAPI, errors, versioning, idempotency
+
+  - id: perf.budget
+    agent: performance
+    deps: [approval.arch]
+    description: Performance — budgets, bottlenecks, load targets
+
+  - id: barrier.design
+    type: BARRIER
+    agent: barrier
+    deps: [db.design, api.design, perf.budget]
+    description: Design synchronization barrier
+
+  - id: approval.figma
+    type: APPROVAL
+    agent: human_approval
+    deps: [barrier.design]
+    risk_tier: HIGH
+    description: Figma gate — upload Figma or continue with LLD agent UI
+
+  # ── Implementation parallel fan-out ─────────────────────
+  - id: backend.implement
+    agent: backend
+    deps: [barrier.design]
+    description: Backend Engineer — services, repos, caching, metrics
+
+  - id: frontend.implement
+    agent: frontend
+    deps: [approval.figma]
+    description: Frontend Engineer — UI from LLD or uploaded Figma
+
+  - id: devops.infra
+    agent: devops
+    deps: [barrier.design]
+    description: DevOps — Terraform, K8s, CI/CD, canary
+
+  - id: barrier.impl
+    type: BARRIER
+    agent: barrier
+    deps: [backend.implement, frontend.implement, devops.infra]
+    description: Implementation synchronization barrier
+
+  # ── Quality parallel fan-out ────────────────────────────
+  - id: test.generate
+    agent: testing
+    deps: [barrier.impl]
+    description: Testing — unit/integration/API/load/chaos/security
+
+  - id: docs.write
+    agent: documentation
+    deps: [barrier.impl]
+    description: Documentation — runbooks, guides, ADR index
+
+  - id: o11y.define
+    agent: observability
+    deps: [barrier.impl]
+    description: Observability — SLIs/SLOs, dashboards, alerts, traces
+
+  - id: barrier.quality
+    type: BARRIER
+    agent: barrier
+    deps: [test.generate, docs.write, o11y.define]
+    description: Quality synchronization barrier
+
+  # ── Security / compliance / review ──────────────────────
+  - id: security.review
+    agent: security
+    deps: [barrier.quality]
+    risk_tier: HIGH
+    description: Security — threat model, OWASP, findings
+
+  - id: security.scan
+    agent: security_scan
+    deps: [security.review]
+    risk_tier: HIGH
+    description: Security scan — SAST/DAST/dependency findings
+
+  - id: compliance.map
+    agent: compliance
+    deps: [security.review]
+    description: Compliance — control mapping + gaps
+
+  - id: review.eng
+    agent: reviewer
+    deps: [security.review, security.scan, compliance.map]
+    description: Reviewer — cross-cutting engineering review
+
+  - id: validation.review
+    agent: validation
+    deps: [review.eng]
+    description: Validation Agent — multi-dimension engineering validation
+
+  - id: validate.pre_release
+    agent: barrier
+    deps: [validation.review]
+    description: Validation Engine — automated quality gates
+
+  - id: approval.release
+    type: APPROVAL
+    agent: human_approval
+    deps: [validate.pre_release]
+    risk_tier: CRITICAL
+    description: Production Go/No-Go
+
+  - id: release.ready
+    agent: release
+    deps: [approval.release]
+    description: Release Readiness — checklist + deployment recommendation

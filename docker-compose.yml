@@ -1,0 +1,22 @@
+services:
+  forge:
+    build: .
+    image: forge-sdlc:local
+    ports:
+      - "8787:8787"
+    env_file:
+      - .env
+    environment:
+      FORGE_VAR_ROOT: /var/forge
+    volumes:
+      - forge-var:/var/forge
+      - ./config:/app/config:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  forge-var:

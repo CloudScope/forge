@@ -1,0 +1,238 @@
+name: deploy
+
+# Pull requests get a plan. Pushes to main deploy dev. Anything else is manual,
+# so promoting to prod is always a deliberate act with an approval behind it.
+on:
+  pull_request:
+    paths:
+      - "forge/**"
+      - "config/**"
+      - "deploy/**"
+      - "main.py"
+      - "requirements*.txt"
+      - ".github/workflows/deploy.yml"
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, prod]
+        default: dev
+      apply:
+        description: Apply (unchecked = plan only)
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write # OIDC to AWS — no long-lived access keys in this repo
+  contents: read
+  pull-requests: write
+
+env:
+  TERRAFORM_VERSION: 1.15.8
+  TF_IN_AUTOMATION: "true"
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+
+# State is a single shared object per environment. Serialise runs so the backend
+# lockfile is a backstop, not the mechanism — a queued run is better than a
+# failed one that leaves a stale lock behind.
+concurrency:
+  group: deploy-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    # Pushes and pull requests already run ci.yml directly; this call is what
+    # gates a deploy, so `main` cannot ship without a green suite.
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/ci.yml
+
+  plan:
+    name: plan (${{ inputs.environment || 'dev' }})
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && !inputs.apply)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Init
+        run: |
+          terraform init -reconfigure -input=false \
+            -backend-config="key=forge/${ENVIRONMENT}/terraform.tfstate"
+
+      - name: Plan
+        run: |
+          terraform plan -input=false -no-color -lock-timeout=5m \
+            -var="environment=${ENVIRONMENT}" \
+            -var="region=${AWS_REGION}" \
+            -var="image_tag=${GITHUB_SHA}" \
+            -out=tfplan | tee plan.txt
+        env:
+          TF_VAR_llm_api_key: ${{ secrets.FORGE_LLM_API_KEY }}
+          TF_VAR_api_token: ${{ secrets.FORGE_API_TOKEN }}
+
+      - name: Comment plan on the pull request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          PLAN_ENVIRONMENT: ${{ env.ENVIRONMENT }}
+        with:
+          script: |
+            const fs = require('fs');
+            // GitHub rejects comments over 65536 chars; keep the decisive tail.
+            const raw = fs.readFileSync('deploy/terraform/plan.txt', 'utf8');
+            const plan = raw.length > 60000 ? `…truncated…\n${raw.slice(-60000)}` : raw;
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: [
+                `### Terraform plan — \`${process.env.PLAN_ENVIRONMENT}\``,
+                '',
+                '<details><summary>Show plan</summary>',
+                '',
+                '```terraform',
+                plan,
+                '```',
+                '',
+                '</details>',
+              ].join('\n'),
+            });
+
+  deploy:
+    name: deploy (${{ inputs.environment || 'dev' }})
+    needs: ci
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.apply)
+    runs-on: ubuntu-latest
+    # Attach required reviewers to the `prod` environment in repo settings to
+    # gate promotion. `dev` deploys straight through.
+    environment: ${{ inputs.environment || 'dev' }}
+    defaults:
+      run:
+        working-directory: deploy/terraform
+    outputs:
+      studio_url: ${{ steps.outputs.outputs.studio_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Init
+        run: |
+          terraform init -reconfigure -input=false \
+            -backend-config="key=forge/${ENVIRONMENT}/terraform.tfstate"
+
+      # Bootstrap: the Lambda and the ECS task definition reference images by
+      # tag, so those images must exist before the full apply. Creating just the
+      # registries first breaks the cycle. Idempotent on every later run.
+      - name: Create image registries
+        run: |
+          terraform apply -input=false -auto-approve -lock-timeout=5m \
+            -target=aws_ecr_repository.api \
+            -target=aws_ecr_repository.worker \
+            -var="environment=${ENVIRONMENT}" \
+            -var="region=${AWS_REGION}"
+        env:
+          TF_VAR_llm_api_key: ${{ secrets.FORGE_LLM_API_KEY }}
+          TF_VAR_api_token: ${{ secrets.FORGE_API_TOKEN }}
+
+      - name: Resolve registry URLs
+        id: ecr
+        run: |
+          echo "api=$(terraform output -raw ecr_api_repository)" >> "$GITHUB_OUTPUT"
+          echo "worker=$(terraform output -raw ecr_worker_repository)" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-buildx-action@v3
+
+      # Tagged with the commit SHA, never `latest`: a rollback is then just an
+      # apply with an older tag, and the running image is always traceable.
+      - name: Push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile.api
+          push: true
+          tags: ${{ steps.ecr.outputs.api }}:${{ github.sha }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+          provenance: false
+
+      - name: Push worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile.worker
+          push: true
+          tags: ${{ steps.ecr.outputs.worker }}:${{ github.sha }}
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
+          provenance: false
+
+      - name: Apply
+        run: |
+          terraform apply -input=false -auto-approve -lock-timeout=5m \
+            -var="environment=${ENVIRONMENT}" \
+            -var="region=${AWS_REGION}" \
+            -var="image_tag=${GITHUB_SHA}"
+        env:
+          TF_VAR_llm_api_key: ${{ secrets.FORGE_LLM_API_KEY }}
+          TF_VAR_api_token: ${{ secrets.FORGE_API_TOKEN }}
+
+      - name: Outputs
+        id: outputs
+        run: echo "studio_url=$(terraform output -raw studio_url)" >> "$GITHUB_OUTPUT"
+
+      # Deploy is not done until the deployed thing answers. /api/health is the
+      # one unauthenticated route, and it reports which backends are actually live.
+      - name: Smoke test
+        run: |
+          url="${{ steps.outputs.outputs.studio_url }}/api/health"
+          for attempt in 1 2 3 4 5; do
+            body=$(curl -sf --max-time 30 "$url") && break
+            echo "attempt $attempt failed (cold start?), retrying in 10s"
+            sleep 10
+          done
+          [ -n "$body" ] || { echo "::error::health check never succeeded"; exit 1; }
+          echo "$body" | jq .
+          echo "$body" | jq -e '.status == "ok"' > /dev/null
+          echo "$body" | jq -e '.storage.backend == "aws"' > /dev/null
+          echo "$body" | jq -e '.execution.mode == "stepfunctions"' > /dev/null
+          echo "$body" | jq -e '.auth.token_configured == true' > /dev/null
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deployed \`${ENVIRONMENT}\`"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Studio | ${{ steps.outputs.outputs.studio_url }} |"
+            echo "| Image tag | \`${GITHUB_SHA}\` |"
+            echo "| State | \`forge/${ENVIRONMENT}/terraform.tfstate\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,29 @@
+{
+  "title": "Forge SDLC Overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Workflow success rate",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "forge_workflow_success_rate", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "E2E latency",
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 },
+      "targets": [{ "expr": "forge_workflow_e2e_latency_seconds", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Retries / MTTR",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "forge_workflow_retries_total", "refId": "A" },
+        { "expr": "forge_workflow_mttr_seconds", "refId": "B" }
+      ]
+    }
+  ]
+}

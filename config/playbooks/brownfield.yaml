@@ -1,0 +1,121 @@
+id: url_shortener.brownfield
+version: 3
+description: Delta changes on existing Snipr — QR, analytics, DB, bugfix (specialized agents)
+nodes:
+  - id: baseline.reqspec
+    agent: requirement
+    preserve: true
+    description: Existing frozen ReqSpec
+
+  - id: baseline.plan
+    agent: planner
+    preserve: true
+    deps: [baseline.reqspec]
+    description: Existing execution plan (preserved)
+
+  - id: baseline.hld
+    agent: architecture
+    preserve: true
+    deps: [baseline.plan]
+    description: Existing frozen HLD
+
+  - id: feature.qr.design
+    agent: architecture
+    deps: [baseline.hld]
+    description: QR codes feature design
+
+  - id: analytics.refactor
+    agent: architecture
+    deps: [baseline.hld]
+    risk_tier: HIGH
+    description: Refactor analytics pipeline
+
+  - id: db.optimize
+    agent: database
+    deps: [baseline.hld]
+    risk_tier: HIGH
+    description: Index/shard optimization
+
+  - id: approval.migration
+    type: APPROVAL
+    agent: human_approval
+    deps: [db.optimize]
+    risk_tier: CRITICAL
+    description: Approve prod migration
+
+  - id: bug.open_redirect
+    agent: backend
+    deps: [baseline.hld]
+    risk_tier: HIGH
+    description: Fix open-redirect edge case
+
+  - id: backend.delta
+    agent: backend
+    deps: [feature.qr.design, analytics.refactor, bug.open_redirect, approval.migration]
+    description: Implement service deltas
+
+  - id: frontend.delta
+    agent: frontend
+    deps: [feature.qr.design, backend.delta]
+    description: Implement UI deltas (QR panel)
+
+  - id: devops.delta
+    agent: devops
+    deps: [backend.delta]
+    description: Infra/CI deltas for new services
+
+  - id: test.delta
+    agent: testing
+    deps: [backend.delta, frontend.delta]
+    description: Regression + new tests
+
+  - id: docs.delta
+    agent: documentation
+    deps: [backend.delta, devops.delta]
+    description: Update runbooks
+
+  - id: o11y.delta
+    agent: observability
+    deps: [backend.delta]
+    description: Update dashboards/alerts
+
+  - id: barrier.delta
+    type: BARRIER
+    agent: barrier
+    deps: [test.delta, docs.delta, o11y.delta, frontend.delta]
+    description: Delta sync barrier
+
+  - id: security.review
+    agent: security
+    deps: [barrier.delta, bug.open_redirect]
+    risk_tier: HIGH
+    description: Security review of delta
+
+  - id: compliance.map
+    agent: compliance
+    deps: [security.review]
+
+  - id: review.eng
+    agent: reviewer
+    deps: [security.review, compliance.map]
+
+  - id: validation.review
+    agent: validation
+    deps: [review.eng]
+
+  - id: validate.pre_release
+    agent: barrier
+    deps: [validation.review]
+    description: Validation gates
+
+  - id: approval.release
+    type: APPROVAL
+    agent: human_approval
+    deps: [validate.pre_release]
+    risk_tier: CRITICAL
+    description: Release Go/No-Go
+
+  - id: release.ready
+    agent: release
+    deps: [approval.release]
+    description: Release notes

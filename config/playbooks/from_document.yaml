@@ -1,0 +1,145 @@
+id: url_shortener.from_document
+version: 1
+description: >
+  Full SDLC from an uploaded requirement document —
+  Requirement → Product → Plan → Architecture → DB → API →
+  Backend → Frontend → Testing → Security → DevOps → Docs →
+  Validation → Human Approval → Release (Orchestrator schedules DAG)
+nodes:
+  # 1. Requirement Analysis Agent
+  - id: req.analyze
+    agent: requirement
+    description: Requirement Analysis — parse PRD into FR/NFR/acceptance
+
+  # 2. Product Analyst Agent
+  - id: product.brief
+    agent: product
+    deps: [req.analyze]
+    description: Product Analyst — MVP cut, backlog, success metrics
+
+  # 3. Planning Agent
+  - id: plan.decompose
+    agent: planner
+    deps: [product.brief]
+    description: Planning — epics/stories/tasks + dependency graph
+
+  # 4. Architecture Agent
+  - id: arch.design
+    agent: architecture
+    deps: [plan.decompose]
+    risk_tier: HIGH
+    description: Architecture — HLD, LLD, ADRs, diagrams
+
+  - id: approval.arch
+    type: APPROVAL
+    agent: human_approval
+    deps: [arch.design]
+    risk_tier: CRITICAL
+    description: Human Approval — architecture freeze
+
+  # 5. Database Agent
+  - id: db.design
+    agent: database
+    deps: [approval.arch]
+    risk_tier: HIGH
+    description: Database — schema, indexes, sharding, migrations
+
+  # 6. API Design Agent
+  - id: api.design
+    agent: api
+    deps: [approval.arch]
+    description: API Design — OpenAPI, errors, versioning, idempotency
+
+  - id: barrier.design
+    type: BARRIER
+    agent: barrier
+    deps: [db.design, api.design]
+    description: Design sync barrier
+
+  - id: approval.figma
+    type: APPROVAL
+    agent: human_approval
+    deps: [barrier.design]
+    risk_tier: HIGH
+    description: Figma gate — upload Figma or continue with LLD agent UI
+
+  # 7. Backend Engineer Agent
+  - id: backend.implement
+    agent: backend
+    deps: [barrier.design]
+    description: Backend Engineer — services, repos, code tree
+
+  # 8. Frontend Engineer Agent
+  - id: frontend.implement
+    agent: frontend
+    deps: [approval.figma]
+    description: Frontend Engineer — UI from LLD or uploaded Figma
+
+  # 11. DevOps Agent (parallel with build)
+  - id: devops.infra
+    agent: devops
+    deps: [barrier.design]
+    description: DevOps — Terraform, K8s, CI/CD
+
+  - id: barrier.impl
+    type: BARRIER
+    agent: barrier
+    deps: [backend.implement, frontend.implement, devops.infra]
+    description: Implementation sync barrier
+
+  # 9. Testing Agent
+  - id: test.generate
+    agent: testing
+    deps: [barrier.impl]
+    description: Testing — unit/integration/API/load/security
+
+  # 10. Security Agent
+  - id: security.review
+    agent: security
+    deps: [barrier.impl]
+    risk_tier: HIGH
+    description: Security — threat model, OWASP, findings
+
+  # 11. Security Review — required by the blocking sec.scan gate
+  - id: security.scan
+    agent: security_scan
+    deps: [security.review]
+    risk_tier: HIGH
+    description: Security scan — SAST/DAST/dependency findings
+
+  # 12. Documentation Agent
+  - id: docs.write
+    agent: documentation
+    deps: [barrier.impl]
+    description: Documentation — runbooks, guides, ADR index
+
+  - id: barrier.quality
+    type: BARRIER
+    agent: barrier
+    deps: [test.generate, security.review, security.scan, docs.write]
+    description: Quality sync barrier
+
+  # 13. Validation Agent
+  - id: validation.review
+    agent: validation
+    deps: [barrier.quality]
+    description: Validation — multi-dimension engineering validation
+
+  - id: validate.pre_release
+    agent: barrier
+    deps: [validation.review]
+    description: Validation Engine — automated quality gates
+
+  # 15. Human Approval Agent (release)
+  - id: approval.release
+    type: APPROVAL
+    agent: human_approval
+    deps: [validate.pre_release]
+    risk_tier: CRITICAL
+    description: Human Approval — production Go/No-Go
+
+  # 14. Release Readiness Agent
+  - id: release.ready
+    agent: release
+    deps: [approval.release]
+    description: Release Readiness — checklist + deployment recommendation

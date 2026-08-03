@@ -1,0 +1,148 @@
+id: url_shortener.ambiguous
+version: 3
+description: Ambiguous "enterprise analytics" brief — clarify, then full agent roster
+nodes:
+  - id: product.brief
+    agent: product
+    description: Product Analyst — detect ambiguous analytics ask
+
+  - id: req.analyze
+    agent: requirement
+    deps: [product.brief]
+    description: Requirement Analysis — emit AmbiguityReport
+
+  - id: approval.clarify
+    type: APPROVAL
+    agent: human_approval
+    deps: [req.analyze]
+    risk_tier: HIGH
+    description: Human selects analytics option A/B/C
+
+  - id: req.renormalize
+    agent: requirement
+    deps: [approval.clarify]
+    description: Produce concrete ReqSpec from answers
+
+  - id: ba.domain
+    agent: business_analyst
+    deps: [req.renormalize]
+    description: Domain model after clarification
+
+  - id: plan.decompose
+    agent: planner
+    deps: [ba.domain]
+    description: Planning after clarification
+
+  - id: risk.assess
+    agent: risk
+    deps: [plan.decompose]
+    description: Risk register
+
+  - id: arch.design
+    agent: architecture
+    deps: [plan.decompose, risk.assess]
+    risk_tier: HIGH
+    description: HLD including analytics pipeline
+
+  - id: approval.arch
+    type: APPROVAL
+    agent: human_approval
+    deps: [arch.design]
+    risk_tier: CRITICAL
+    description: Architecture freeze
+
+  - id: db.design
+    agent: database
+    deps: [approval.arch]
+    risk_tier: HIGH
+
+  - id: api.design
+    agent: api
+    deps: [approval.arch]
+
+  - id: perf.budget
+    agent: performance
+    deps: [approval.arch]
+
+  - id: barrier.design
+    type: BARRIER
+    agent: barrier
+    deps: [db.design, api.design, perf.budget]
+
+  - id: approval.figma
+    type: APPROVAL
+    agent: human_approval
+    deps: [barrier.design]
+    risk_tier: HIGH
+    description: Figma gate — upload Figma or continue with LLD agent UI
+
+  - id: backend.implement
+    agent: backend
+    deps: [barrier.design]
+
+  - id: frontend.implement
+    agent: frontend
+    deps: [approval.figma]
+
+  - id: devops.infra
+    agent: devops
+    deps: [barrier.design]
+
+  - id: barrier.impl
+    type: BARRIER
+    agent: barrier
+    deps: [backend.implement, frontend.implement, devops.infra]
+
+  - id: test.generate
+    agent: testing
+    deps: [barrier.impl]
+
+  - id: docs.write
+    agent: documentation
+    deps: [barrier.impl]
+
+  - id: o11y.define
+    agent: observability
+    deps: [barrier.impl]
+
+  - id: barrier.quality
+    type: BARRIER
+    agent: barrier
+    deps: [test.generate, docs.write, o11y.define]
+
+  - id: security.review
+    agent: security
+    deps: [barrier.quality]
+    risk_tier: HIGH
+
+  - id: security.scan
+    agent: security_scan
+    deps: [security.review]
+    risk_tier: HIGH
+    description: Security scan — SAST/DAST/dependency findings (required by sec.scan gate)
+
+  - id: compliance.map
+    agent: compliance
+    deps: [security.review]
+
+  - id: review.eng
+    agent: reviewer
+    deps: [security.review, security.scan, compliance.map]
+
+  - id: validation.review
+    agent: validation
+    deps: [review.eng]
+
+  - id: validate.pre_release
+    agent: barrier
+    deps: [validation.review]
+
+  - id: approval.release
+    type: APPROVAL
+    agent: human_approval
+    deps: [validate.pre_release]
+    risk_tier: CRITICAL
+
+  - id: release.ready
+    agent: release
+    deps: [approval.release]

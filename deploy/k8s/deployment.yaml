@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forge-studio
+  labels:
+    app: forge-studio
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: forge-studio
+  template:
+    metadata:
+      labels:
+        app: forge-studio
+    spec:
+      containers:
+        - name: forge
+          image: forge-sdlc:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8787
+              name: http
+          env:
+            - name: FORGE_VAR_ROOT
+              value: /var/forge
+            - name: FORGE_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: forge-secrets
+                  key: FORGE_LLM_API_KEY
+                  optional: true
+          volumeMounts:
+            - name: forge-var
+              mountPath: /var/forge
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: forge-var
+          persistentVolumeClaim:
+            claimName: forge-var-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forge-studio
+spec:
+  selector:
+    app: forge-studio
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forge-var-pvc
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi
