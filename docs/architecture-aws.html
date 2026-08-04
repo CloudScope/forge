@@ -1,0 +1,560 @@
+<title>Forge — AWS Infrastructure</title>
+
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f6f8;
+    --panel: #ffffff;
+    --ink: #101c2b;
+    --muted: #5a6b7f;
+    --faint: #8496a8;
+    --rule: #dde3ea;
+    --cloud-rule: #b3c0cf;
+    --group: #eef2f6;
+    --wire: #7a8ba0;
+    --accent: #ed7100;
+
+    --c-compute: #ed7100;
+    --c-storage: #7aa116;
+    --c-database: #c925d1;
+    --c-network: #8c4fff;
+    --c-integration: #e7157b;
+    --c-security: #dd344c;
+    --c-mgmt: #01a88d;
+    --c-external: #232f3e;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1620;
+      --panel: #16202e;
+      --ink: #e8eef5;
+      --muted: #9aabbe;
+      --faint: #74879b;
+      --rule: #26344557;
+      --cloud-rule: #3d5064;
+      --group: #1c2937;
+      --wire: #7d92a8;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0d1620;
+    --panel: #16202e;
+    --ink: #e8eef5;
+    --muted: #9aabbe;
+    --faint: #74879b;
+    --rule: #26344557;
+    --cloud-rule: #3d5064;
+    --group: #1c2937;
+    --wire: #7d92a8;
+  }
+
+  :root[data-theme="light"] {
+    --bg: #f4f6f8;
+    --panel: #ffffff;
+    --ink: #101c2b;
+    --muted: #5a6b7f;
+    --faint: #8496a8;
+    --rule: #dde3ea;
+    --cloud-rule: #b3c0cf;
+    --group: #eef2f6;
+    --wire: #7a8ba0;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, ui-sans-serif, sans-serif;
+    line-height: 1.55;
+    margin: 0;
+    padding: 3rem 1.5rem 5rem;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 2.5rem; }
+
+  header { display: flex; flex-direction: column; gap: .6rem; }
+  .eyebrow {
+    font: 600 .72rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 { font-size: clamp(1.7rem, 3.4vw, 2.4rem); margin: 0; text-wrap: balance; letter-spacing: -.02em; }
+  .lede { color: var(--muted); max-width: 68ch; margin: 0; font-size: 1.02rem; }
+
+  h2 {
+    font-size: 1.15rem; margin: 0 0 .2rem; letter-spacing: -.01em;
+    display: flex; align-items: baseline; gap: .6rem;
+  }
+  h2 .n {
+    font: 600 .72rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--faint); letter-spacing: .1em;
+  }
+
+  section { display: flex; flex-direction: column; gap: .9rem; }
+
+  .canvas {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    padding: 1rem;
+    overflow-x: auto;
+  }
+  .canvas svg { display: block; min-width: 1000px; width: 100%; height: auto; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: .5rem .4rem; list-style: none; padding: 0; margin: 0; }
+  .legend li {
+    display: flex; align-items: center; gap: .45rem;
+    font: 500 .78rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--muted);
+    background: var(--group);
+    border-radius: 999px;
+    padding: .42rem .7rem .42rem .5rem;
+  }
+  .legend .sw { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+  caption { text-align: left; color: var(--muted); font-size: .88rem; padding-bottom: .5rem; }
+  th, td { text-align: left; padding: .6rem .75rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font: 600 .7rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--faint);
+  }
+  td:first-child { white-space: nowrap; font-weight: 600; }
+  .tbl-scroll { overflow-x: auto; }
+
+  ol.path { margin: 0; padding-left: 1.3rem; display: flex; flex-direction: column; gap: .45rem; color: var(--muted); }
+  ol.path strong { color: var(--ink); font-weight: 600; }
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .88em;
+    background: var(--group);
+    padding: .12em .38em;
+    border-radius: 4px;
+  }
+
+  footer { color: var(--faint); font-size: .84rem; border-top: 1px solid var(--rule); padding-top: 1.2rem; }
+  footer a { color: inherit; }
+
+  /* SVG text inherits nothing useful by default — set it here. */
+  .svc-name { font: 600 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; fill: var(--ink); }
+  .svc-sub  { font: 400 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace; fill: var(--muted); }
+  .grp-label{ font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; fill: var(--faint); }
+  .wire-label { font: 500 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; fill: var(--muted); }
+  .wire { stroke: var(--wire); stroke-width: 1.6; fill: none; }
+  .wire-dash { stroke: var(--wire); stroke-width: 1.3; fill: none; stroke-dasharray: 4 4; opacity: .75; }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Forge · deploy/terraform</span>
+    <h1>AWS infrastructure</h1>
+    <p class="lede">
+      Every resource Terraform creates, and how a request moves through them. The
+      load-bearing property is that nothing runs while nobody is looking: no NAT
+      gateway, no always-on container, no idle database.
+    </p>
+  </header>
+
+  <section>
+    <div class="canvas">
+      <svg viewBox="0 0 1240 830" role="img" aria-label="AWS architecture diagram for Forge">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--wire)"/>
+          </marker>
+
+          <!-- Service glyphs, drawn white on the category tile -->
+          <symbol id="g-apigw" viewBox="0 0 48 48">
+            <rect x="18" y="14" width="12" height="20" rx="3" fill="none" stroke="#fff" stroke-width="2.6"/>
+            <path d="M6 20h9M6 28h9M33 20h9M33 28h9" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+            <path d="M12 16l4 4-4 4M36 24l4 4-4 4" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </symbol>
+
+          <symbol id="g-lambda" viewBox="0 0 48 48">
+            <path d="M15 11h7l16 26h-7z" fill="#fff"/>
+            <path d="M24 27l-6 10h-7l9.5-15z" fill="#fff"/>
+          </symbol>
+
+          <symbol id="g-sfn" viewBox="0 0 48 48">
+            <circle cx="13" cy="13" r="5" fill="#fff"/>
+            <circle cx="35" cy="24" r="5" fill="#fff"/>
+            <circle cx="13" cy="35" r="5" fill="#fff"/>
+            <path d="M18 15.5l12 6M30 26.5l-12 6" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+          </symbol>
+
+          <symbol id="g-ecs" viewBox="0 0 48 48">
+            <path d="M24 6l15 8.5v19L24 42 9 33.5v-19z" fill="none" stroke="#fff" stroke-width="2.6" stroke-linejoin="round"/>
+            <rect x="17" y="18" width="6" height="6" rx="1" fill="#fff"/>
+            <rect x="25" y="18" width="6" height="6" rx="1" fill="#fff"/>
+            <rect x="21" y="26" width="6" height="6" rx="1" fill="#fff"/>
+          </symbol>
+
+          <symbol id="g-s3" viewBox="0 0 48 48">
+            <path d="M11 13h26l-3.5 24a2 2 0 0 1-2 1.7H16.5a2 2 0 0 1-2-1.7z" fill="none" stroke="#fff" stroke-width="2.6" stroke-linejoin="round"/>
+            <ellipse cx="24" cy="13" rx="13" ry="4" fill="#fff"/>
+          </symbol>
+
+          <symbol id="g-ddb" viewBox="0 0 48 48">
+            <ellipse cx="24" cy="13" rx="13" ry="4.6" fill="#fff"/>
+            <path d="M11 13v22c0 2.5 5.8 4.6 13 4.6s13-2.1 13-4.6V13" fill="none" stroke="#fff" stroke-width="2.6"/>
+            <path d="M11 24c0 2.5 5.8 4.6 13 4.6s13-2.1 13-4.6" fill="none" stroke="#fff" stroke-width="2.4"/>
+          </symbol>
+
+          <symbol id="g-cw" viewBox="0 0 48 48">
+            <path d="M9 38V10M9 38h30" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+            <path d="M14 31l7-9 6 5 9-13" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="36" cy="14" r="3" fill="#fff"/>
+          </symbol>
+
+          <symbol id="g-ecr" viewBox="0 0 48 48">
+            <rect x="8" y="11" width="32" height="26" rx="3" fill="none" stroke="#fff" stroke-width="2.6"/>
+            <path d="M8 20h32M8 28h32" stroke="#fff" stroke-width="2.2"/>
+            <rect x="12" y="13.5" width="5" height="4" rx="1" fill="#fff"/>
+            <rect x="12" y="21.5" width="5" height="4" rx="1" fill="#fff"/>
+            <rect x="12" y="29.5" width="5" height="4" rx="1" fill="#fff"/>
+          </symbol>
+
+          <symbol id="g-ssm" viewBox="0 0 48 48">
+            <rect x="9" y="9" width="30" height="30" rx="4" fill="none" stroke="#fff" stroke-width="2.6"/>
+            <path d="M15 18h18M15 24h18M15 30h18" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+            <circle cx="21" cy="18" r="3" fill="#fff"/>
+            <circle cx="29" cy="24" r="3" fill="#fff"/>
+            <circle cx="23" cy="30" r="3" fill="#fff"/>
+          </symbol>
+
+          <symbol id="g-iam" viewBox="0 0 48 48">
+            <path d="M16 21v-4a8 8 0 0 1 16 0v4" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/>
+            <rect x="12" y="21" width="24" height="18" rx="3.5" fill="#fff"/>
+            <circle cx="24" cy="28" r="2.6" fill="var(--c-security)"/>
+            <path d="M24 30v4" stroke="var(--c-security)" stroke-width="2.4" stroke-linecap="round"/>
+          </symbol>
+
+          <symbol id="g-browser" viewBox="0 0 48 48">
+            <rect x="7" y="10" width="34" height="28" rx="3.5" fill="none" stroke="#fff" stroke-width="2.6"/>
+            <path d="M7 19h34" stroke="#fff" stroke-width="2.4"/>
+            <circle cx="12.5" cy="14.5" r="1.7" fill="#fff"/>
+            <circle cx="18" cy="14.5" r="1.7" fill="#fff"/>
+            <path d="M14 26h20M14 32h13" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+          </symbol>
+
+          <symbol id="g-llm" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="13" fill="none" stroke="#fff" stroke-width="2.6"/>
+            <ellipse cx="24" cy="24" rx="13" ry="5.5" fill="none" stroke="#fff" stroke-width="2"/>
+            <ellipse cx="24" cy="24" rx="5.5" ry="13" fill="none" stroke="#fff" stroke-width="2"/>
+          </symbol>
+        </defs>
+
+        <!-- ── AWS Cloud + Region boundary ───────────────────────────────── -->
+        <rect x="186" y="46" width="900" height="742" rx="12"
+              fill="none" stroke="var(--cloud-rule)" stroke-width="1.6"/>
+        <text class="grp-label" x="204" y="70">AWS CLOUD</text>
+        <rect x="206" y="86" width="862" height="682" rx="10"
+              fill="none" stroke="var(--cloud-rule)" stroke-width="1.2" stroke-dasharray="6 5"/>
+        <text class="grp-label" x="224" y="110">REGION · ap-south-1</text>
+
+        <!-- group bands -->
+        <rect x="232" y="264" width="150" height="288" rx="9" fill="var(--group)"/>
+        <text class="grp-label" x="248" y="288">CONTROL PLANE</text>
+
+        <rect x="650" y="264" width="150" height="132" rx="9" fill="var(--group)"/>
+        <text class="grp-label" x="666" y="288">EXECUTION</text>
+
+        <rect x="884" y="128" width="160" height="268" rx="9" fill="var(--group)"/>
+        <text class="grp-label" x="900" y="152">STATE &amp; ARTIFACTS</text>
+
+        <rect x="232" y="620" width="812" height="128" rx="9" fill="var(--group)"/>
+        <text class="grp-label" x="248" y="644">CROSS-CUTTING · used by every compute tier</text>
+
+        <!-- ── wires (drawn under the tiles) ─────────────────────────────── -->
+        <!-- operator → api gateway -->
+        <path class="wire" d="M148 176 H274" marker-end="url(#arrow)"/>
+        <text class="wire-label" x="156" y="167">HTTPS + token</text>
+
+        <!-- api gateway → lambda api -->
+        <path class="wire" d="M307 208 V330" marker-end="url(#arrow)"/>
+        <text class="wire-label" x="315" y="264">AWS_PROXY</text>
+        <text class="wire-label" x="315" y="278">ANY /{proxy+}</text>
+
+        <!-- lambda api → step functions -->
+        <path class="wire" d="M340 362 H492" marker-end="url(#arrow)"/>
+        <text class="wire-label" x="348" y="353">StartExecution</text>
+        <text class="wire-label" x="348" y="367">SendTaskSuccess</text>
+
+        <!-- step functions → ecs -->
+        <path class="wire" d="M558 362 H692" marker-end="url(#arrow)"/>
+        <text class="wire-label" x="566" y="353">ecs:runTask</text>
+        <text class="wire-label" x="566" y="367">.sync</text>
+
+        <!-- step functions → token lambda -->
+        <path class="wire" d="M525 394 V470 H340" marker-end="url(#arrow)"/>
+        <text class="wire-label" x="366" y="464">waitForTaskToken</text>
+
+        <!-- ecs → dynamodb -->
+        <path class="wire" d="M758 362 H926" marker-end="url(#arrow)"/>
+        <text class="wire-label" x="792" y="353">checkpoints</text>
+
+        <!-- ecs → s3 (up and over) -->
+        <path class="wire" d="M725 330 V208 H926" marker-end="url(#arrow)"/>
+        <text class="wire-label" x="736" y="200">artifacts · generated source</text>
+
+        <!-- lambda api → data (routed under the middle band) -->
+        <path class="wire" d="M307 394 V574 H1000 V394" marker-end="url(#arrow)"/>
+        <text class="wire-label" x="640" y="567">reads run state · builds the .zip</text>
+
+        <!-- ecs → openai, crossing the cloud boundary -->
+        <path class="wire" d="M741 394 V500 H1160 V208" marker-end="url(#arrow)"/>
+        <text class="wire-label" x="1020" y="493">HTTPS egress · no NAT</text>
+
+        <!-- cross-cutting bracket -->
+        <path class="wire-dash" d="M638 620 V590"/>
+        <path class="wire-dash" d="M307 620 V590 H1000 V590"/>
+
+        <!-- ── tiles ─────────────────────────────────────────────────────── -->
+        <!-- Operator (outside the cloud) -->
+        <g>
+          <rect x="84" y="144" width="64" height="64" rx="12" fill="var(--c-external)"/>
+          <use href="#g-browser" x="100" y="160" width="32" height="32"/>
+          <text class="svc-name" x="116" y="230" text-anchor="middle">Operator</text>
+          <text class="svc-sub" x="116" y="246" text-anchor="middle">Forge Studio</text>
+        </g>
+
+        <!-- API Gateway -->
+        <g>
+          <rect x="275" y="144" width="64" height="64" rx="12" fill="var(--c-network)"/>
+          <use href="#g-apigw" x="291" y="160" width="32" height="32"/>
+          <text class="svc-name" x="307" y="230" text-anchor="middle">API Gateway</text>
+          <text class="svc-sub" x="307" y="246" text-anchor="middle">forge-dev-studio</text>
+        </g>
+
+        <!-- Lambda API -->
+        <g>
+          <rect x="275" y="330" width="64" height="64" rx="12" fill="var(--c-compute)"/>
+          <use href="#g-lambda" x="291" y="346" width="32" height="32"/>
+          <text class="svc-name" x="307" y="416" text-anchor="middle">Lambda</text>
+          <text class="svc-sub" x="307" y="432" text-anchor="middle">forge-dev-api</text>
+          <text class="svc-sub" x="307" y="447" text-anchor="middle">1 GB · 30 s</text>
+        </g>
+
+        <!-- Token Lambda -->
+        <g>
+          <rect x="275" y="470" width="64" height="64" rx="12" fill="var(--c-compute)"/>
+          <use href="#g-lambda" x="291" y="486" width="32" height="32"/>
+          <text class="svc-name" x="307" y="556" text-anchor="middle">Lambda</text>
+          <text class="svc-sub" x="307" y="572" text-anchor="middle">register-token</text>
+        </g>
+
+        <!-- Step Functions -->
+        <g>
+          <rect x="493" y="330" width="64" height="64" rx="12" fill="var(--c-integration)"/>
+          <use href="#g-sfn" x="509" y="346" width="32" height="32"/>
+          <text class="svc-name" x="525" y="416" text-anchor="middle">Step Functions</text>
+          <text class="svc-sub" x="525" y="432" text-anchor="middle">forge-dev-workflow</text>
+          <text class="svc-sub" x="525" y="447" text-anchor="middle">STANDARD</text>
+        </g>
+
+        <!-- ECS / Fargate -->
+        <g>
+          <rect x="693" y="330" width="64" height="64" rx="12" fill="var(--c-compute)"/>
+          <use href="#g-ecs" x="709" y="346" width="32" height="32"/>
+          <text class="svc-name" x="725" y="416" text-anchor="middle">ECS on Fargate</text>
+          <text class="svc-sub" x="725" y="432" text-anchor="middle">forge-dev-worker</text>
+          <text class="svc-sub" x="725" y="447" text-anchor="middle">FARGATE_SPOT</text>
+        </g>
+
+        <!-- S3 -->
+        <g>
+          <rect x="927" y="176" width="64" height="64" rx="12" fill="var(--c-storage)"/>
+          <use href="#g-s3" x="943" y="192" width="32" height="32"/>
+          <text class="svc-name" x="959" y="262" text-anchor="middle">S3</text>
+          <text class="svc-sub" x="959" y="278" text-anchor="middle">artifacts bucket</text>
+          <text class="svc-sub" x="959" y="293" text-anchor="middle">versioned · SSE</text>
+        </g>
+
+        <!-- DynamoDB -->
+        <g>
+          <rect x="927" y="330" width="64" height="64" rx="12" fill="var(--c-database)"/>
+          <use href="#g-ddb" x="943" y="346" width="32" height="32"/>
+          <text class="svc-name" x="959" y="416" text-anchor="middle">DynamoDB</text>
+          <text class="svc-sub" x="959" y="432" text-anchor="middle">workflows · checkpoints</text>
+          <text class="svc-sub" x="959" y="447" text-anchor="middle">memory · on-demand</text>
+        </g>
+
+        <!-- Cross-cutting rail -->
+        <g>
+          <rect x="275" y="656" width="56" height="56" rx="11" fill="var(--c-mgmt)"/>
+          <use href="#g-cw" x="289" y="670" width="28" height="28"/>
+          <text class="svc-name" x="303" y="732" text-anchor="middle">CloudWatch</text>
+        </g>
+        <g>
+          <rect x="475" y="656" width="56" height="56" rx="11" fill="var(--c-compute)"/>
+          <use href="#g-ecr" x="489" y="670" width="28" height="28"/>
+          <text class="svc-name" x="503" y="732" text-anchor="middle">ECR</text>
+        </g>
+        <g>
+          <rect x="675" y="656" width="56" height="56" rx="11" fill="var(--c-mgmt)"/>
+          <use href="#g-ssm" x="689" y="670" width="28" height="28"/>
+          <text class="svc-name" x="703" y="732" text-anchor="middle">Parameter Store</text>
+        </g>
+        <g>
+          <rect x="875" y="656" width="56" height="56" rx="11" fill="var(--c-security)"/>
+          <use href="#g-iam" x="889" y="670" width="28" height="28"/>
+          <text class="svc-name" x="903" y="732" text-anchor="middle">IAM</text>
+        </g>
+
+        <!-- OpenAI (outside the cloud) -->
+        <g>
+          <rect x="1128" y="176" width="64" height="64" rx="12" fill="var(--c-external)"/>
+          <use href="#g-llm" x="1144" y="192" width="32" height="32"/>
+          <text class="svc-name" x="1160" y="262" text-anchor="middle">OpenAI</text>
+          <text class="svc-sub" x="1160" y="278" text-anchor="middle">gpt-4o-mini</text>
+        </g>
+      </svg>
+    </div>
+
+    <ul class="legend">
+      <li><span class="sw" style="background:var(--c-compute)"></span>Compute &amp; Containers</li>
+      <li><span class="sw" style="background:var(--c-storage)"></span>Storage</li>
+      <li><span class="sw" style="background:var(--c-database)"></span>Database</li>
+      <li><span class="sw" style="background:var(--c-network)"></span>Networking</li>
+      <li><span class="sw" style="background:var(--c-integration)"></span>App Integration</li>
+      <li><span class="sw" style="background:var(--c-security)"></span>Security &amp; Identity</li>
+      <li><span class="sw" style="background:var(--c-mgmt)"></span>Management</li>
+      <li><span class="sw" style="background:var(--c-external)"></span>Outside AWS</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="n">01</span> Request path</h2>
+    <ol class="path">
+      <li><strong>Browser → API Gateway → Lambda.</strong> <code>ANY /</code> and <code>ANY /{proxy+}</code> both target the same function, so the HTML page and every <code>/api/*</code> call are one integration.</li>
+      <li><strong>Upload starts an execution.</strong> The Lambda calls <code>StartExecution</code> and returns immediately — it never runs a workflow.</li>
+      <li><strong>RunSegment</strong> launches a Fargate task that ticks the engine until it reaches a human gate.</li>
+      <li><strong>CheckWorkflowState</strong> reads the stored status. If <code>PAUSED</code>, <code>AwaitApproval</code> registers a task token and the execution parks — at zero cost, for as long as it waits.</li>
+      <li><strong>The operator answers the gate.</strong> The API records the decision durably first, then releases the token; <code>ResumeSegment</code> launches the next task.</li>
+      <li><strong>Repeat until terminal.</strong> Artifacts land in S3; the Studio reads them back and can package the whole run as a <code>.zip</code>.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2><span class="n">02</span> Why these services</h2>
+    <div class="tbl-scroll">
+      <table>
+        <caption>Each choice trades against an obvious alternative.</caption>
+        <thead>
+          <tr><th>Choice</th><th>Reason</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Lambda + Web Adapter</td><td>Runs <code>uvicorn main:app</code> unmodified — the same image runs locally with <code>docker run</code>. Scales to zero between visits.</td></tr>
+          <tr><td>Step Functions</td><td><code>waitForTaskToken</code> parks a run at a human gate at no cost, however long the human takes.</td></tr>
+          <tr><td>ECS on Fargate</td><td>A segment needs minutes and a writable filesystem for codegen. Lambda's 15-minute ceiling and read-only filesystem do not fit.</td></tr>
+          <tr><td>DynamoDB + S3</td><td>No idle cost, and the workload is key-lookup documents plus blobs — not relational.</td></tr>
+          <tr><td>Parameter Store</td><td>Standard parameters are free; nothing here needs the managed rotation Secrets Manager charges for.</td></tr>
+          <tr><td>No NAT gateway</td><td>A NAT would cost more than every other line item combined. Tasks take a public IP behind an egress-only security group.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">03</span> Application architecture</h2>
+    <p class="lede">What runs inside those containers — the same code on both backends.</p>
+    <div class="canvas">
+      <pre class="mermaid">
+flowchart TB
+    subgraph studio["Studio · FastAPI + inline SPA"]
+        DASH["dashboard.py<br/>UI · REST · gate modals · .zip download"]
+        AUTH["auth.py<br/>token or loopback-only"]
+    end
+    subgraph kernel["Orchestration core"]
+        ENGINE["engine.py<br/>DAG scheduling · barriers · retries<br/>compensation saga"]
+        GRAPH["graph/runtime.py<br/>LangGraph StateGraph + interrupts"]
+        APPROVAL["approval.py + approval_gates.py<br/>gate menus · decision vocabulary"]
+        VALID["validation.py<br/>blocking quality gates"]
+    end
+    subgraph roster["Agent roster · 22"]
+        A1["intake · requirement · product"]
+        A2["planner · dag"]
+        A3["architecture · database · api"]
+        A4["backend · frontend · devops"]
+        A5["security · testing · validation"]
+        A6["docs · release · deployment · o11y"]
+    end
+    subgraph produced["Outputs"]
+        ART["Artifacts<br/>ReqSpec · HLD/LLD · ADRs<br/>OpenAPI · DDL · test plan"]
+        WS["Workspace<br/>FastAPI backend · React UI<br/>Docker · Terraform · CI"]
+        SA["storage/<br/>local and AWS behind one interface"]
+    end
+    DASH --> AUTH
+    DASH --> ENGINE
+    DASH --> GRAPH
+    GRAPH --> ENGINE
+    ENGINE --> roster
+    ENGINE --> APPROVAL
+    ENGINE --> VALID
+    roster --> ART
+    roster --> WS
+    ART --> SA
+    WS --> SA
+    VALID -- "blocking gate fails" --> ENGINE
+
+    classDef layerUi fill:#8C4FFF,stroke:#6B3BCC,color:#fff
+    classDef layerCore fill:#ED7100,stroke:#B85C00,color:#fff
+    classDef layerAgent fill:#1B7897,stroke:#125870,color:#fff
+    classDef layerOut fill:#7AA116,stroke:#5A7A10,color:#fff
+    class DASH,AUTH layerUi
+    class ENGINE,GRAPH,APPROVAL,VALID layerCore
+    class A1,A2,A3,A4,A5,A6 layerAgent
+    class ART,WS,SA layerOut
+      </pre>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">04</span> The SDLC pipeline and its gates</h2>
+    <p class="lede">
+      Gates marked <strong>always</strong> pause for a human even in demo mode. A failing
+      blocking gate does not merely stop the run — it triggers the compensation saga, so a
+      half-validated tree is never left behind as a deliverable.
+    </p>
+    <div class="canvas">
+      <pre class="mermaid">
+flowchart LR
+    INTAKE["intake<br/>capture"] --> REQ["req<br/>analyze"]
+    REQ --> CLARIFY{{"approval.clarify<br/>always"}}
+    CLARIFY --> PLAN["plan<br/>decompose"]
+    PLAN --> GPLAN{{"approval.plan"}}
+    GPLAN --> ARCH["arch<br/>HLD · LLD · ADRs"]
+    ARCH --> GARCH{{"approval.arch"}}
+    GARCH --> DB["db<br/>schema · DDL"]
+    DB --> GDB{{"approval.db"}}
+    GDB --> API["api<br/>OpenAPI"]
+    API --> GAPI{{"approval.api"}}
+    GAPI --> FIGMA{{"approval.figma<br/>always"}}
+    FIGMA --> CODE["backend · frontend<br/>devops codegen"]
+    CODE --> GCODE{{"approval.coding<br/>always"}}
+    GCODE --> TEST["testing · security<br/>validation"]
+    TEST --> GATE{"validate<br/>pre_release"}
+    GATE -- pass --> REL["release<br/>docs · summary"]
+    GATE -- "blocking gate fails" --> COMP["compensation saga<br/>tear down generated tree"]
+
+    classDef gateStyle fill:#E7157B,stroke:#B31060,color:#fff
+    classDef workStyle fill:#ED7100,stroke:#B85C00,color:#fff
+    classDef badStyle fill:#D13212,stroke:#A02810,color:#fff
+    class CLARIFY,GPLAN,GARCH,GDB,GAPI,FIGMA,GCODE gateStyle
+    class INTAKE,REQ,PLAN,ARCH,DB,API,CODE,TEST,REL workStyle
+    class COMP badStyle
+      </pre>
+    </div>
+  </section>
+
+  <footer>
+    Resource names use the <code>${project}-${environment}</code> prefix from
+    <code>deploy/terraform/variables.tf</code>, which defaults to <code>forge-dev</code>.
+    Service marks are drawn from AWS's architecture-icon geometry and coloured by
+    AWS service category; they are redrawn here rather than embedded, so the page
+    stays self-contained.
+  </footer>
+</div>

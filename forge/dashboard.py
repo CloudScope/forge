@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import io
 import json
 import threading
+import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,7 @@ from .storage import (
     document_store,
     latest_version,
     object_store,
+    workspace_prefix,
 )
 
 _P = forge_paths()
@@ -739,6 +742,54 @@ def workflow_detail(workflow_id: str) -> dict[str, Any]:
         raise HTTPException(404, "Workflow not found")
     summary = _read_json(ARTIFACTS / workflow_id / "_summary.json")
     return {"workflow": data, "summary": summary}
+
+
+def _zip_workflow(workflow_id: str) -> bytes:
+    """
+    Everything a run produced, as one archive.
+
+    Read through the object store rather than the filesystem so this works
+    identically on both backends: locally the store *is* the var tree, and on AWS
+    it is the S3 bucket the workers sync their output to. The API host holds no
+    copy of either — a Lambda that never ran the workflow still serves the zip.
+    """
+    doc = _workflow_doc(workflow_id)
+    if not doc:
+        raise HTTPException(404, "Workflow not found")
+
+    store = object_store()
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            f"{workflow_id}/workflow.json", json.dumps(doc, indent=2, default=str)
+        )
+        for prefix, folder in (
+            (artifact_prefix(workflow_id), "artifacts"),
+            (workspace_prefix(workflow_id), "workspace"),
+        ):
+            for key in store.list_keys(prefix):
+                blob = store.get_bytes(key)
+                if blob is None:
+                    continue
+                relative = key[len(prefix) :].lstrip("/")
+                if not relative:
+                    continue
+                archive.writestr(f"{workflow_id}/{folder}/{relative}", blob)
+    return buffer.getvalue()
+
+
+@app.get("/api/workflows/{workflow_id}/download")
+def download_workflow(workflow_id: str) -> Response:
+    """Download every artifact and generated file for a run as a zip."""
+    payload = _zip_workflow(workflow_id)
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{workflow_id}_forge.zip"',
+            "Content-Length": str(len(payload)),
+        },
+    )
 
 
 def _artifact_html_content(workflow_id: str, key: str) -> str | None:
@@ -1912,6 +1963,8 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         <button class="tab" data-tab="trace">Audit Trace</button>
         <button class="tab" data-tab="dag">DAG</button>
         <button class="tab" data-tab="artifacts">Artifacts</button>
+        <button class="btn secondary" id="download-btn" style="margin-left:auto" disabled
+                title="Download every artifact and generated file as a zip">Download .zip</button>
       </div>
       <div class="content" id="content"><div class="empty">Upload a requirement document to see HLD, LLD, APIs, and code</div></div>
     </div>
@@ -2015,6 +2068,8 @@ async function refreshWorkflows() {
 
 async function selectWorkflow(id, { resetSection = false } = {}) {
   state.selected = id;
+  const dl = document.getElementById("download-btn");
+  if (dl) dl.disabled = false;
   const [detail, trace, results] = await Promise.all([
     fetch(`/api/workflows/${id}`).then(r => r.json()),
     fetch(`/api/workflows/${id}/trace`).then(r => r.json()),
@@ -3010,6 +3065,41 @@ document.getElementById("tabs").addEventListener("click", (ev) => {
   renderContent();
 });
 
+// Fetched as a blob rather than navigating to the URL: a navigation would drop
+// the token header, and this way a failure surfaces as a message instead of the
+// browser opening an error page over the Studio.
+async function downloadWorkflowZip(id, btn) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Preparing…";
+  try {
+    const res = await fetch(`/api/workflows/${id}/download`);
+    if (!res.ok) {
+      const out = await res.json().catch(() => ({}));
+      throw new Error(out.detail || `HTTP ${res.status}`);
+    }
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${id}_forge.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    document.getElementById("upload-status").textContent = "Artifacts downloaded.";
+  } catch (err) {
+    document.getElementById("upload-status").textContent =
+      `Download failed: ${err.message || err}`;
+  } finally {
+    btn.disabled = !state.selected;
+    btn.textContent = label;
+  }
+}
+
+document.getElementById("download-btn").addEventListener("click", (ev) => {
+  if (state.selected) downloadWorkflowZip(state.selected, ev.currentTarget);
+});
+
 async function startAndShow(startPromise) {
   state.uploading = true;
   state.tab = "results";
@@ -3107,6 +3197,8 @@ async function cleanupRuns({ finishedOnly = false } = {}) {
     state.selected = null;
     state.detail = null;
     state.results = null;
+    const dl = document.getElementById("download-btn");
+    if (dl) dl.disabled = true;
     document.getElementById("content").innerHTML = `<div class="empty">Upload a requirement document to see HLD, LLD, APIs, and code</div>`;
   }
   const n = data.workflows ?? 0;
