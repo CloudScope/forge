@@ -251,10 +251,20 @@ def _make_orchestrator(auto_approve: bool = True, max_workers: int = 4) -> dict[
     return {"engine": engine, "runtime": None, "orchestrator": "legacy"}
 
 
+def _live_gate(live: dict[str, Any] | None) -> bool:
+    """True when a cached run actually holds an open gate."""
+    wf = (live or {}).get("wf")
+    return bool(wf and any(a.status == "REQUESTED" for a in wf.approvals))
+
+
 def _ensure_live_paused(workflow_id: str) -> dict[str, Any]:
     """Return live engine+wf for a paused gate; rehydrate from disk if needed."""
     live = _live_runs.get(workflow_id)
-    if live and live.get("wf") and live.get("engine"):
+    # The cached object is only trustworthy while it still shows the gate. On AWS
+    # the run advances inside Fargate, so a warm Lambda keeps serving whatever it
+    # last saw — usually a RUNNING snapshot from before the gate opened. Trusting
+    # that hides the gate from the Studio and the run parks forever.
+    if live and live.get("engine") and _live_gate(live):
         return live
     from .approval import build_request
     from .models import WorkflowStatus
@@ -392,8 +402,11 @@ def pending_approval(workflow_id: str) -> dict[str, Any]:
         raise HTTPException(404, "Workflow not found")
     approvals: list[dict[str, Any]] = []
     status = (wf_data or {}).get("status")
-    # Prefer live; if paused on disk with no live map, rehydrate so options/summary exist.
-    if (not live or not live.get("wf")) and status == "WAITING_APPROVAL":
+    # The persisted doc is the authority on whether a gate is open. Rehydrate
+    # whenever it says WAITING_APPROVAL and the cached run does not show the gate
+    # — a stale cache would otherwise report RUNNING/none and the Studio would
+    # render no buttons for a run that is parked waiting for exactly that click.
+    if status == "WAITING_APPROVAL" and not _live_gate(live):
         try:
             live = _ensure_live_paused(workflow_id)
         except HTTPException:
