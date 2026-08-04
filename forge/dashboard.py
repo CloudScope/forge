@@ -695,8 +695,7 @@ def _build_dag_html_for_workflow(workflow_id: str) -> str:
     if not wf:
         raise HTTPException(404, "Workflow not found")
     facts = wf.get("facts") or {}
-    dep_path = _latest_artifact(workflow_id, "dependency_graph")
-    dep = _read_json(dep_path) if dep_path else {}
+    dep = _latest_artifact(workflow_id, "dependency_graph") or {}
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
     for tid, t in (wf.get("tasks") or {}).items():
@@ -743,10 +742,9 @@ def workflow_detail(workflow_id: str) -> dict[str, Any]:
 
 
 def _artifact_html_content(workflow_id: str, key: str) -> str | None:
-    path = _latest_artifact(workflow_id, key)
-    if not path:
+    raw = _latest_artifact(workflow_id, key)
+    if not raw:
         return None
-    raw = _read_json(path)
     if isinstance(raw, str) and ("<!doctype" in raw.lower() or "<html" in raw.lower()):
         return raw
     if isinstance(raw, dict) and isinstance(raw.get("html"), str):
@@ -761,7 +759,7 @@ def _workspace_manifest(workflow_id: str) -> dict[str, Any]:
         return data
     # Fallback: artifact copy if present
     art = _latest_artifact(workflow_id, "workspace_manifest")
-    return _read_json(art) if art else {}
+    return art if isinstance(art, dict) else {}
 
 
 STUDIO_SECTIONS: list[tuple[str, str]] = [
@@ -775,8 +773,14 @@ _BARE_STUDIO_SECTIONS = frozenset({"dag", "hld", "lld", "db", "workspace"})
 
 
 def _latest_artifact_json(workflow_id: str, key: str) -> Any:
-    path = _latest_artifact(workflow_id, key)
-    return _read_json(path) if path else None
+    """
+    Kept as the intent-revealing name at its many call sites.
+
+    `_latest_artifact` already parses; the second `_read_json` this used to do
+    was a leftover from when it returned a Path, and it raised AttributeError on
+    every artifact that actually existed.
+    """
+    return _latest_artifact(workflow_id, key)
 
 
 def _raw_section_html(workflow_id: str, section: str) -> str:
