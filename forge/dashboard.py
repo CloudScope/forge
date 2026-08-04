@@ -744,49 +744,57 @@ def workflow_detail(workflow_id: str) -> dict[str, Any]:
     return {"workflow": data, "summary": summary}
 
 
-def _zip_workflow(workflow_id: str) -> bytes:
+def _zip_workspace(workflow_id: str) -> bytes:
     """
-    Everything a run produced, as one archive.
+    The generated source tree, as a zip that unpacks straight into a project.
 
     Read through the object store rather than the filesystem so this works
     identically on both backends: locally the store *is* the var tree, and on AWS
     it is the S3 bucket the workers sync their output to. The API host holds no
     copy of either — a Lambda that never ran the workflow still serves the zip.
+
+    Artifacts (ReqSpec, HLD, OpenAPI, …) are deliberately excluded: this is the
+    deliverable a developer opens in an editor, and the Studio already renders
+    the design documents in their own sections.
     """
-    doc = _workflow_doc(workflow_id)
-    if not doc:
+    if not _workflow_doc(workflow_id):
         raise HTTPException(404, "Workflow not found")
 
     store = object_store()
+    prefix = workspace_prefix(workflow_id)
     buffer = io.BytesIO()
+    written = 0
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(
-            f"{workflow_id}/workflow.json", json.dumps(doc, indent=2, default=str)
+        for key in store.list_keys(prefix):
+            blob = store.get_bytes(key)
+            if blob is None:
+                continue
+            relative = key[len(prefix) :].lstrip("/")
+            if not relative:
+                continue
+            archive.writestr(relative, blob)
+            written += 1
+
+    if not written:
+        # An empty zip looks like a broken download. Codegen may not have run
+        # yet, or a failed blocking gate compensated the tree away.
+        raise HTTPException(
+            409,
+            "No workspace to download yet — code generation has not run, "
+            "or a failed validation gate rolled the generated tree back.",
         )
-        for prefix, folder in (
-            (artifact_prefix(workflow_id), "artifacts"),
-            (workspace_prefix(workflow_id), "workspace"),
-        ):
-            for key in store.list_keys(prefix):
-                blob = store.get_bytes(key)
-                if blob is None:
-                    continue
-                relative = key[len(prefix) :].lstrip("/")
-                if not relative:
-                    continue
-                archive.writestr(f"{workflow_id}/{folder}/{relative}", blob)
     return buffer.getvalue()
 
 
 @app.get("/api/workflows/{workflow_id}/download")
-def download_workflow(workflow_id: str) -> Response:
-    """Download every artifact and generated file for a run as a zip."""
-    payload = _zip_workflow(workflow_id)
+def download_workspace(workflow_id: str) -> Response:
+    """Download the generated workspace for a run as a zip."""
+    payload = _zip_workspace(workflow_id)
     return Response(
         content=payload,
         media_type="application/zip",
         headers={
-            "Content-Disposition": f'attachment; filename="{workflow_id}_forge.zip"',
+            "Content-Disposition": f'attachment; filename="{workflow_id}_workspace.zip"',
             "Content-Length": str(len(payload)),
         },
     )
@@ -1964,7 +1972,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         <button class="tab" data-tab="dag">DAG</button>
         <button class="tab" data-tab="artifacts">Artifacts</button>
         <button class="btn secondary" id="download-btn" style="margin-left:auto" disabled
-                title="Download every artifact and generated file as a zip">Download .zip</button>
+                title="Download the generated workspace as a zip">Download workspace</button>
       </div>
       <div class="content" id="content"><div class="empty">Upload a requirement document to see HLD, LLD, APIs, and code</div></div>
     </div>
@@ -3081,12 +3089,12 @@ async function downloadWorkflowZip(id, btn) {
     const url = URL.createObjectURL(await res.blob());
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${id}_forge.zip`;
+    a.download = `${id}_workspace.zip`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
-    document.getElementById("upload-status").textContent = "Artifacts downloaded.";
+    document.getElementById("upload-status").textContent = "Workspace downloaded.";
   } catch (err) {
     document.getElementById("upload-status").textContent =
       `Download failed: ${err.message || err}`;

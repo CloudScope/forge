@@ -1,9 +1,13 @@
 """
-Downloading a run's output as a single archive.
+Downloading the generated workspace as a zip.
+
+The archive carries the source tree only — the deliverable a developer opens in
+an editor — not the design artifacts the Studio already renders in its own
+sections.
 
 Everything is read through the object store, never the local filesystem: on AWS
-the artifacts live in S3 and the API Lambda never ran the workflow, so a handler
-that reached for `var/artifacts` would serve an empty zip in production while
+the workspace lives in S3 and the API Lambda never ran the workflow, so a handler
+that reached for `var/workspaces` would serve an empty zip in production while
 passing every local test.
 """
 
@@ -67,30 +71,54 @@ class TestDownload:
         res = client.get(f"/api/workflows/{completed}/download")
 
         assert res.headers["content-type"] == "application/zip"
-        assert f'filename="{completed}_forge.zip"' in res.headers["content-disposition"]
+        assert (
+            f'filename="{completed}_workspace.zip"'
+            in res.headers["content-disposition"]
+        )
 
     def test_the_archive_is_valid(self, archive):
         assert archive.testzip() is None, "archive has a corrupt member"
 
-    def test_it_carries_the_workflow_document(self, archive, completed):
-        assert f"{completed}/workflow.json" in archive.namelist()
-
-    def test_it_carries_the_published_artifacts(self, archive, completed):
+    def test_it_unpacks_straight_into_a_project(self, archive):
+        """No wrapper directory: the generated tree sits at the archive root."""
         names = archive.namelist()
-        artifacts = [n for n in names if n.startswith(f"{completed}/artifacts/")]
 
-        assert len(artifacts) > 10, f"expected a full artifact set, got {artifacts}"
-        assert any("reqspec" in n for n in artifacts)
-        assert any("openapi" in n for n in artifacts)
+        assert names, "archive is empty"
+        assert not any(n.startswith("wf_") for n in names), (
+            f"paths are wrapped in a workflow directory: {names[:3]}"
+        )
+        assert any(n.startswith("backend/") for n in names), names[:10]
 
-    def test_members_are_readable(self, archive, completed):
+    def test_it_excludes_the_design_artifacts(self, archive):
+        """Explicitly the deliverable only — the Studio renders the docs itself."""
+        names = archive.namelist()
+
+        assert not any("artifacts/" in n for n in names)
+        assert not any(n.endswith("workflow.json") for n in names)
+        assert not any("reqspec" in n or "openapi.v" in n for n in names)
+
+    def test_members_are_readable(self, archive):
         """A zip of empty files would satisfy every name-based assertion above."""
-        doc = archive.read(f"{completed}/workflow.json")
+        sources = [n for n in archive.namelist() if n.endswith(".py")]
 
-        assert len(doc) > 100
-        assert completed.encode() in doc
+        assert sources, "no generated Python in the workspace"
+        assert any(len(archive.read(n)) > 50 for n in sources)
 
     def test_an_unknown_workflow_is_404_not_an_empty_zip(self, client):
         res = client.get("/api/workflows/wf_does_not_exist/download")
 
         assert res.status_code == 404
+
+    def test_a_run_with_no_workspace_explains_itself(self, client):
+        """A rolled-back or not-yet-coded run must not hand back an empty zip."""
+        started = client.post(
+            "/api/workflows/from-example", data={"auto_approve": "false"}
+        )
+        workflow_id = started.json()["workflow_id"]
+
+        res = client.get(f"/api/workflows/{workflow_id}/download")
+
+        if res.status_code == 200:
+            pytest.skip("run generated a workspace before the request landed")
+        assert res.status_code == 409
+        assert "workspace" in res.json()["detail"].lower()

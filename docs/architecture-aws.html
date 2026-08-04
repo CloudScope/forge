@@ -302,7 +302,7 @@
 
         <!-- lambda api → data (routed under the middle band) -->
         <path class="wire" d="M307 394 V574 H1000 V394" marker-end="url(#arrow)"/>
-        <text class="wire-label" x="640" y="567">reads run state · builds the .zip</text>
+        <text class="wire-label" x="640" y="567">reads run state · zips the workspace</text>
 
         <!-- ecs → openai, crossing the cloud boundary -->
         <path class="wire" d="M741 394 V500 H1160 V208" marker-end="url(#arrow)"/>
@@ -434,7 +434,7 @@
       <li><strong>RunSegment</strong> launches a Fargate task that ticks the engine until it reaches a human gate.</li>
       <li><strong>CheckWorkflowState</strong> reads the stored status. If <code>PAUSED</code>, <code>AwaitApproval</code> registers a task token and the execution parks — at zero cost, for as long as it waits.</li>
       <li><strong>The operator answers the gate.</strong> The API records the decision durably first, then releases the token; <code>ResumeSegment</code> launches the next task.</li>
-      <li><strong>Repeat until terminal.</strong> Artifacts land in S3; the Studio reads them back and can package the whole run as a <code>.zip</code>.</li>
+      <li><strong>Repeat until terminal.</strong> Artifacts and the generated source tree land in S3; the Studio reads them back, and packages the workspace as a <code>.zip</code> on request.</li>
     </ol>
   </section>
 
@@ -465,7 +465,7 @@
       <pre class="mermaid">
 flowchart TB
     subgraph studio["Studio · FastAPI + inline SPA"]
-        DASH["dashboard.py<br/>UI · REST · gate modals · .zip download"]
+        DASH["dashboard.py<br/>UI · REST · gate modals · workspace .zip"]
         AUTH["auth.py<br/>token or loopback-only"]
     end
     subgraph kernel["Orchestration core"]

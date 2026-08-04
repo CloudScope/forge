@@ -233,19 +233,24 @@ AWS. Deployed configuration comes from `local.forge_env` in
 
 ---
 
-## 4. Downloading a run
+## 4. Downloading the workspace
 
 `GET /api/workflows/{id}/download` streams a zip built **through the object
 store**, so it behaves identically on both backends — on AWS the API Lambda never
 ran the workflow and holds no local copy.
 
+The archive carries the **generated source tree only**. Design artifacts (ReqSpec,
+HLD/LLD, OpenAPI, DDL) are excluded: the Studio renders those in its own sections,
+and this download is the deliverable a developer opens in an editor. Paths sit at
+the archive root, so it unpacks straight into a project directory.
+
 ```
-wf_abc123/
-├── workflow.json          tasks, approvals, facts, audit events
-├── artifacts/             every published artifact, versioned
-│   ├── reqspec.v1.json
-│   ├── openapi.v1.json
-│   └── …
-└── workspace/             the generated source tree
-    ├── backend/  frontend/  infra/
+backend/          FastAPI app, routes, models, tests
+frontend/         React UI wired to the generated API
+infra/            Dockerfiles, compose, Terraform
+.github/workflows/ci.yml, cd.yml
 ```
+
+A run whose codegen has not happened yet — or whose tree was rolled back by a
+failed blocking gate — returns **409** with an explanation rather than an empty
+zip.
