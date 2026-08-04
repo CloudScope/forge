@@ -128,6 +128,27 @@ def _schema_type(schema: dict[str, Any] | None) -> str:
     return "Any"
 
 
+def _merge_parameters(
+    item_params: Any, op_params: Any
+) -> list[dict[str, Any]]:
+    """
+    Path-item parameters merged with an operation's own.
+
+    A parameter is unique by (name, in), and an operation-level declaration
+    overrides the path-item one rather than adding a second. Concatenating them
+    emits the same name twice into the route signature, which is a Python syntax
+    error — `def redirect(code: str, code: str)` — and fails code.compiles.
+    """
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
+    for source in (item_params or [], op_params or []):
+        if not isinstance(source, list):
+            continue
+        for p in source:
+            if isinstance(p, dict) and p.get("name"):
+                merged[(str(p["name"]), str(p.get("in")))] = p
+    return list(merged.values())
+
+
 def _iter_operations(openapi: dict[str, Any]) -> list[dict[str, Any]]:
     ops: list[dict[str, Any]] = []
     for path, item in (openapi.get("paths") or {}).items():
@@ -145,7 +166,9 @@ def _iter_operations(openapi: dict[str, Any]) -> list[dict[str, Any]]:
                     "operation_id": op_id,
                     "summary": op.get("summary") or op_id,
                     "description": op.get("description") or "",
-                    "parameters": list(item.get("parameters") or []) + list(op.get("parameters") or []),
+                    "parameters": _merge_parameters(
+                        item.get("parameters"), op.get("parameters")
+                    ),
                     "request_body": op.get("requestBody"),
                     "responses": op.get("responses") or {},
                     "tags": op.get("tags") or ["default"],

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from forge import secrets
@@ -12,6 +14,11 @@ def _fresh():
     secrets.reset()
     yield
     secrets.reset()
+    # hydrate() assigns straight into os.environ, which monkeypatch does not
+    # track and therefore cannot undo. A resolved FORGE_API_TOKEN left behind
+    # silently flips the auth posture for every later test in the process.
+    for target in secrets.PARAMETER_REFS:
+        os.environ.pop(target, None)
 
 
 class FakeSSM:

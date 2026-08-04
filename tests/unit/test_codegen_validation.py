@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import copy
+
+from forge.agents.api import _declare_path_params
 from forge.codegen_validation import (
     compile_python_sources,
     derive_operation_coverage,
@@ -135,6 +138,74 @@ class TestOpenAPIStructure:
         spec = _spec(paths={"/a": {"get": {"responses": {"twohundred": {}}}}})
         errors = validate_openapi(spec)
         assert any("invalid response code" in e for e in errors)
+
+
+class TestPathParameterRepair:
+    """
+    api.openapi_valid is blocking: an undeclared path parameter compensates the
+    whole implementation stage and tears down the generated workspace. The agent
+    repairs what the path already tells it rather than losing the run to it.
+    """
+
+    def test_undeclared_path_parameters_are_declared(self):
+        paths = {
+            "/{code}": {"get": {"responses": {"302": {"description": "Redirect"}}}},
+            "/v1/links/{id}": {
+                "get": {"responses": {"200": {"description": "OK"}}},
+                "delete": {"responses": {"204": {"description": "Deleted"}}},
+            },
+        }
+        assert validate_openapi(_spec(paths=paths)), "fixture should start invalid"
+
+        _declare_path_params(paths)
+
+        assert validate_openapi(_spec(paths=paths)) == []
+        declared = {
+            p["name"] for p in paths["/v1/links/{id}"]["parameters"] if p["in"] == "path"
+        }
+        assert declared == {"id"}
+
+    def test_every_method_on_a_path_is_covered(self):
+        """Declared on the path item, so a second operation cannot be left out."""
+        paths = {
+            "/v1/links/{id}": {
+                "get": {
+                    "parameters": [
+                        {"name": "id", "in": "path", "required": True,
+                         "schema": {"type": "string"}}
+                    ],
+                    "responses": {"200": {"description": "OK"}},
+                },
+                "delete": {"responses": {"204": {"description": "Deleted"}}},
+            }
+        }
+
+        _declare_path_params(paths)
+
+        assert validate_openapi(_spec(paths=paths)) == []
+
+    def test_an_already_valid_contract_is_left_alone(self):
+        paths = {
+            "/v1/links/{id}": {
+                "parameters": [
+                    {"name": "id", "in": "path", "required": True,
+                     "schema": {"type": "string"}}
+                ],
+                "get": {"responses": {"200": {"description": "OK"}}},
+            }
+        }
+        before = copy.deepcopy(paths)
+
+        _declare_path_params(paths)
+
+        assert paths == before
+
+    def test_paths_without_templates_gain_no_parameters(self):
+        paths = {"/v1/links": {"get": {"responses": {"200": {"description": "OK"}}}}}
+
+        _declare_path_params(paths)
+
+        assert "parameters" not in paths["/v1/links"]
 
 
 class TestOperationEnumeration:

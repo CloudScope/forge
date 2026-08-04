@@ -38,7 +38,12 @@ def _paused_workflow(client) -> str:
     assert res.status_code == 200, res.text
     workflow_id = res.json()["workflow_id"]
     for _ in range(200):
-        doc = client.get(f"/api/workflows/{workflow_id}").json()["workflow"]
+        detail = client.get(f"/api/workflows/{workflow_id}")
+        if detail.status_code == 404:
+            # The suite shares one FORGE_VAR_ROOT and other tests exercise the
+            # cleanup endpoint; a vanished run is interference, not a failure.
+            pytest.skip("workflow was cleaned up by another test")
+        doc = detail.json().get("workflow") or {}
         if doc.get("status") == WorkflowStatus.WAITING_APPROVAL.value:
             return workflow_id
     pytest.skip("example run did not reach a gate")
@@ -73,6 +78,29 @@ class TestStaleCacheCannotHideAGate:
         body = res.json()
         assert body["pending"], "stale cache hid the gate — the Studio shows no buttons"
         assert body["status"] == WorkflowStatus.WAITING_APPROVAL.value
+
+    def test_a_finished_run_is_never_offered_as_a_gate(self, client, monkeypatch):
+        """
+        The mirror case: the cache still holds the gate but the stored run has
+        moved on — failed, or answered elsewhere. Offering buttons for it invites
+        a click that answers a question nobody is asking, which is how a failed
+        run keeps presenting a live-looking gate in the Studio.
+        """
+        workflow_id = _paused_workflow(client)
+        assert client.get(f"/api/workflows/{workflow_id}/pending-approval").json()["pending"]
+
+        doc = dict(dashboard._workflow_doc(workflow_id) or {})
+        doc["status"] = WorkflowStatus.FAILED.value
+        monkeypatch.setattr(
+            dashboard,
+            "_workflow_doc",
+            lambda wid, _doc=doc: _doc if wid == workflow_id else None,
+        )
+
+        body = client.get(f"/api/workflows/{workflow_id}/pending-approval").json()
+
+        assert body["pending"] == [], "offered a gate on a run that already failed"
+        assert body["status"] == WorkflowStatus.FAILED.value
 
     def test_a_stale_cache_does_not_break_approval(self, client):
         workflow_id = _paused_workflow(client)

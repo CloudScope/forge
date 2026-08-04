@@ -260,12 +260,20 @@ def _live_gate(live: dict[str, Any] | None) -> bool:
 def _ensure_live_paused(workflow_id: str) -> dict[str, Any]:
     """Return live engine+wf for a paused gate; rehydrate from disk if needed."""
     live = _live_runs.get(workflow_id)
-    # The cached object is only trustworthy while it still shows the gate. On AWS
-    # the run advances inside Fargate, so a warm Lambda keeps serving whatever it
-    # last saw — usually a RUNNING snapshot from before the gate opened. Trusting
-    # that hides the gate from the Studio and the run parks forever.
-    if live and live.get("engine") and _live_gate(live):
+    # The cached object is only trustworthy while it still shows the gate *and*
+    # the stored document agrees a gate is open. On AWS the run advances inside
+    # Fargate, so a warm Lambda keeps serving whatever it last saw: a snapshot
+    # from before the gate opened hides the gate, and one from before the run
+    # failed accepts decisions on a workflow that is already dead.
+    doc_status = (_workflow_doc(workflow_id) or {}).get("status")
+    if (
+        live
+        and live.get("engine")
+        and _live_gate(live)
+        and doc_status in (None, "WAITING_APPROVAL")
+    ):
         return live
+    _live_runs.pop(workflow_id, None)
     from .approval import build_request
     from .models import WorkflowStatus
 
@@ -402,10 +410,20 @@ def pending_approval(workflow_id: str) -> dict[str, Any]:
         raise HTTPException(404, "Workflow not found")
     approvals: list[dict[str, Any]] = []
     status = (wf_data or {}).get("status")
-    # The persisted doc is the authority on whether a gate is open. Rehydrate
-    # whenever it says WAITING_APPROVAL and the cached run does not show the gate
-    # — a stale cache would otherwise report RUNNING/none and the Studio would
-    # render no buttons for a run that is parked waiting for exactly that click.
+    # The stored status is the authority on whether a gate is open. A run that
+    # has failed or moved on may still carry a REQUESTED approval — in its cached
+    # object, in its document, or both — and offering that as a live gate invites
+    # a click that answers a question nobody is asking.
+    if wf_data and status != "WAITING_APPROVAL":
+        _live_runs.pop(workflow_id, None)
+        return {
+            "workflow_id": workflow_id,
+            "status": status,
+            "pending": [],
+            "gate_note": "No gate is open on this workflow.",
+        }
+    # It says WAITING_APPROVAL but the cache has no gate: rehydrate, or the Studio
+    # renders no buttons for a run parked waiting for exactly that click.
     if status == "WAITING_APPROVAL" and not _live_gate(live):
         try:
             live = _ensure_live_paused(workflow_id)

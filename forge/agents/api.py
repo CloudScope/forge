@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from ..models import TaskNode, Workflow
@@ -8,6 +9,46 @@ from .doc_context import has_feature, product_name
 from .llm_bridge import run_llm_agent
 
 HTTP_METHODS = ("get", "post", "put", "patch", "delete", "options", "head")
+
+_PATH_TEMPLATE = re.compile(r"\{([^{}/]+)\}")
+
+
+def _declare_path_params(paths: dict[str, Any]) -> None:
+    """
+    Declare every `{template}` a path already names as a path parameter.
+
+    OpenAPI 3 requires it, and a model writing a spec routinely emits
+    `/v1/links/{id}` with no matching parameter. That fails api.openapi_valid,
+    which is blocking — so the whole implementation stage gets compensated and
+    the generated workspace is torn down over a repairable omission. The path
+    itself tells us the name, so repair it rather than reject the run.
+
+    Declared at the path-item level, which every operation inherits. An operation
+    may still override the same name; the spec allows that and forbids only
+    removal, so adding here can never invalidate a spec that was already valid.
+    """
+    for path, item in paths.items():
+        if not isinstance(item, dict):
+            continue
+        templates = set(_PATH_TEMPLATE.findall(str(path)))
+        if not templates:
+            continue
+        params = [p for p in (item.get("parameters") or []) if isinstance(p, dict)]
+        declared = {str(p.get("name")) for p in params if p.get("in") == "path"}
+        missing = templates - declared
+        if not missing:
+            continue
+        for name in sorted(missing):
+            params.append(
+                {
+                    "name": name,
+                    "in": "path",
+                    "required": True,
+                    "schema": {"type": "string"},
+                    "description": f"{name} path parameter",
+                }
+            )
+        item["parameters"] = params
 
 
 def _resp(code: str, description: str, schema_ref: str | None = None) -> dict[str, Any]:
@@ -228,6 +269,8 @@ def _normalize_openapi(spec: dict[str, Any], product: str) -> dict[str, Any]:
     servers = spec.get("servers")
     if not isinstance(servers, list) or not servers:
         servers = [{"url": "https://api.example.com", "description": "Production"}]
+
+    _declare_path_params(paths_out)
 
     out: dict[str, Any] = {
         "openapi": "3.0.3",
